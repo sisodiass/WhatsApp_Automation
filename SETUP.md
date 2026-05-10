@@ -36,6 +36,26 @@ sudo apt install -y \
 The last line is the Chromium runtime that whatsapp-web.js's bundled Puppeteer
 needs. (We install it via `apt` so the bundled binary works headlessly under PM2.)
 
+### ARM hosts (Oracle Cloud Ampere A1, Raspberry Pi, AWS Graviton)
+
+The Puppeteer binary that whatsapp-web.js downloads during `npm install` is
+**x86_64-only** — it won't run on ARM. On an ARM VM, install system Chromium
+and tell Puppeteer to use it instead:
+
+```bash
+sudo apt install -y chromium-browser
+which chromium-browser   # → /usr/bin/chromium-browser
+```
+
+Then in `backend/.env` (set BEFORE the `npm install` in step 7):
+
+```
+PUPPETEER_SKIP_DOWNLOAD=true
+PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
+```
+
+Skipping the download cuts the npm install time and disk usage too.
+
 ## 2. Install Node.js 20 via nvm
 
 ```bash
