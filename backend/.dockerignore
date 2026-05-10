@@ -1,0 +1,15 @@
+node_modules
+npm-debug.log
+.env
+.env.*
+.wwebjs_auth
+.wwebjs_cache
+logs
+backups
+uploads
+.git
+.gitignore
+*.md
+ecosystem.config.js
+frontend
+docker-compose.yml

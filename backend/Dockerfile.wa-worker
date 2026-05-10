@@ -1,0 +1,36 @@
+# WhatsApp worker image: Node 20 + system Chromium for whatsapp-web.js / Puppeteer.
+# Build context = backend/ (set via rootDir in render.yaml).
+
+FROM node:20-bookworm-slim
+
+# Chromium + the runtime libs Puppeteer needs in headless mode.
+# fonts-liberation is required for many emoji/text glyphs in WhatsApp Web.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      chromium \
+      ca-certificates \
+      fonts-liberation \
+      tini \
+    && rm -rf /var/lib/apt/lists/*
+
+ENV PUPPETEER_SKIP_DOWNLOAD=true \
+    PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium \
+    NODE_ENV=production
+
+WORKDIR /app
+
+# Install deps first for better layer caching.
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev && npm cache clean --force
+
+# Prisma client (the worker uses it to update conversations / messages).
+COPY prisma ./prisma
+RUN npx prisma generate
+
+COPY src ./src
+
+# Render mounts the persistent disk at /app/.wwebjs_auth (see render.yaml).
+# whatsapp-web.js LocalAuth reads/writes there, so QR is only scanned once.
+
+# tini handles SIGTERM correctly so Chromium child processes shut down cleanly.
+ENTRYPOINT ["/usr/bin/tini", "--"]
+CMD ["node", "src/workers/whatsapp.worker.js"]
