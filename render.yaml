@@ -113,10 +113,11 @@ services:
   # Chromium needs (libnss3, libatk-bridge, etc).
   - type: worker
     name: sa-wa-worker
-    runtime: image
+    runtime: docker
     plan: starter
     rootDir: backend
     dockerfilePath: ./Dockerfile.wa-worker
+    dockerContext: .
     disk:
       name: wwebjs-session
       mountPath: /app/.wwebjs_auth
