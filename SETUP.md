@@ -51,10 +51,16 @@ Then in `backend/.env` (set BEFORE the `npm install` in step 7):
 
 ```
 PUPPETEER_SKIP_DOWNLOAD=true
+PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
 ```
 
-Skipping the download cuts the npm install time and disk usage too.
+Both skip-download names are set on purpose: `PUPPETEER_SKIP_CHROMIUM_DOWNLOAD`
+is the legacy name (Puppeteer < 19, which whatsapp-web.js currently bundles);
+`PUPPETEER_SKIP_DOWNLOAD` is the canonical name (Puppeteer 19+). Setting both
+is harmless and survives a future whatsapp-web.js bump.
+
+Skipping the download also cuts npm install time and disk usage.
 
 ## 2. Install Node.js 20 via nvm
 
