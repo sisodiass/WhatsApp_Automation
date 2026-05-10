@@ -1,0 +1,25 @@
+node_modules/
+dist/
+build/
+.env
+.env.local
+*.log
+.DS_Store
+.idea/
+.vscode/
+
+# whatsapp-web.js LocalAuth session
+.wwebjs_auth/
+.wwebjs_cache/
+
+# Prisma generated
+backend/prisma/migrations/dev.db*
+
+# Backups
+backups/
+
+# Local PDF uploads (persisted to disk; KB chunks live in pgvector)
+backend/uploads/
+
+# Logs
+backend/logs/

@@ -1,0 +1,49 @@
+node_modules/
+dist/
+build/
+.env
+.env.local
+*.log
+.DS_Store
+.idea/
+.vscode/
+
+# whatsapp-web.js LocalAuth session
+.wwebjs_auth/
+.wwebjs_cache/
+
+# Prisma generated
+backend/prisma/migrations/dev.db*
+
+# Backups
+backups/
+
+# Local PDF uploads (persisted to disk; KB chunks live in pgvector)
+backend/uploads/
+
+# Logs
+backend/logs/
+
+# Env variants
+.env.*
+!.env.example
+
+# Editor / OS junk
+Thumbs.db
+*.swp
+
+# Build outputs (frontend)
+frontend/dist/
+backend/frontend/dist/
+
+# Coverage / test artifacts
+coverage/
+.nyc_output/
+
+# Prisma local engine cache
+backend/prisma/.cache/
+
+# Defensive: never push secrets or session state even if nested
+**/.env
+**/.wwebjs_auth/
+**/.wwebjs_cache/

@@ -1,0 +1,116 @@
+// Campaign-level rollups derived from existing tables. No new event log
+// table — everything we need lives in chat_sessions + manual_queue_items
+// + demo_bookings + messages. Recomputed on every request; the volumes
+// at this scale don't need a precomputed materialized view.
+
+import { prisma } from "../../shared/prisma.js";
+
+const PERIODS = {
+  "24h": 24 * 3600 * 1000,
+  "7d": 7 * 24 * 3600 * 1000,
+  "30d": 30 * 24 * 3600 * 1000,
+  all: null,
+};
+
+export function periodSince(period) {
+  const ms = PERIODS[period];
+  if (!ms) return null;
+  return new Date(Date.now() - ms);
+}
+
+export async function getOverview(tenantId, period) {
+  const since = periodSince(period);
+
+  // We use $queryRawUnsafe so we can conditionally drop the time filter
+  // for `period=all`. All inputs are fixed strings or DB-derived; no SQL
+  // injection surface.
+  const sinceFilter = since ? `AND cs.started_at >= '${since.toISOString()}'::timestamptz` : "";
+  const sinceMsg = since ? `AND m.created_at >= '${since.toISOString()}'::timestamptz` : "";
+  const sinceBk = since ? `AND db.created_at >= '${since.toISOString()}'::timestamptz` : "";
+
+  // Top-level numbers.
+  const [overview] = await prisma.$queryRawUnsafe(`
+    WITH t AS (SELECT $1::text AS tenant_id),
+    s AS (
+      SELECT cs.id, cs.mode, cs.ai_reply_count, cs.last_confidence, cs.ended_reason
+        FROM chat_sessions cs
+        JOIN chats c ON c.id = cs.chat_id
+       WHERE c.tenant_id = (SELECT tenant_id FROM t)
+         ${sinceFilter}
+    )
+    SELECT
+      (SELECT COUNT(*)::int FROM s)                                        AS sessions_started,
+      (SELECT COUNT(*)::int FROM s WHERE mode = 'AI')                      AS ai_sessions,
+      (SELECT COUNT(*)::int FROM s WHERE mode = 'MANUAL')                  AS manual_sessions,
+      (SELECT COALESCE(SUM(ai_reply_count), 0)::int FROM s)                AS ai_replies,
+      (SELECT ROUND(AVG(last_confidence)::numeric, 3)::float FROM s WHERE last_confidence IS NOT NULL) AS avg_confidence,
+      (SELECT COUNT(*)::int FROM s WHERE ended_reason = 'CAMPAIGN_REENTRY') AS session_resets,
+      (SELECT COUNT(*)::int FROM messages m
+         JOIN chat_sessions cs2 ON cs2.id = m.session_id
+         JOIN chats c2 ON c2.id = cs2.chat_id
+        WHERE c2.tenant_id = (SELECT tenant_id FROM t) ${sinceMsg}) AS total_messages,
+      (SELECT COUNT(*)::int FROM manual_queue_items mq
+         JOIN chats c3 ON c3.id = mq.chat_id
+        WHERE c3.tenant_id = (SELECT tenant_id FROM t)
+          ${since ? `AND mq.created_at >= '${since.toISOString()}'::timestamptz` : ""}) AS manual_queue_items,
+      (SELECT COUNT(*)::int FROM manual_queue_items mq
+         JOIN chats c3 ON c3.id = mq.chat_id
+        WHERE c3.tenant_id = (SELECT tenant_id FROM t) AND mq.resolved_at IS NULL) AS manual_unresolved,
+      (SELECT COUNT(*)::int FROM demo_bookings db
+         JOIN chats c4 ON c4.id = db.chat_id
+        WHERE c4.tenant_id = (SELECT tenant_id FROM t) ${sinceBk}) AS demo_bookings
+  `, tenantId);
+
+  return overview;
+}
+
+export async function getCampaignBreakdown(tenantId, period) {
+  const since = periodSince(period);
+  const sinceFilter = since
+    ? `AND cs.started_at >= '${since.toISOString()}'::timestamptz`
+    : "";
+  const sinceBk = since
+    ? `AND db.created_at >= '${since.toISOString()}'::timestamptz`
+    : "";
+
+  return prisma.$queryRawUnsafe(`
+    SELECT
+      c.id    AS campaign_id,
+      c.name  AS name,
+      c.tag   AS tag,
+      c.is_active AS is_active,
+      COALESCE(s.sessions_started, 0)::int      AS sessions_started,
+      COALESCE(s.ai_replies, 0)::int            AS ai_replies,
+      COALESCE(s.session_resets, 0)::int        AS session_resets,
+      COALESCE(s.manual_sessions, 0)::int       AS manual_sessions,
+      COALESCE(esc.escalations, 0)::int         AS manual_escalations,
+      COALESCE(d.demo_bookings, 0)::int         AS demo_bookings,
+      ROUND(s.avg_confidence::numeric, 3)::float AS avg_confidence
+    FROM campaigns c
+    LEFT JOIN LATERAL (
+      SELECT
+        COUNT(*)::int                                            AS sessions_started,
+        SUM(cs.ai_reply_count)::int                              AS ai_replies,
+        SUM((cs.ended_reason = 'CAMPAIGN_REENTRY')::int)::int    AS session_resets,
+        SUM((cs.mode = 'MANUAL')::int)::int                      AS manual_sessions,
+        AVG(cs.last_confidence) FILTER (WHERE cs.last_confidence IS NOT NULL) AS avg_confidence
+      FROM chat_sessions cs
+      WHERE cs.campaign_id = c.id ${sinceFilter}
+    ) s ON true
+    LEFT JOIN LATERAL (
+      SELECT COUNT(*)::int AS escalations
+      FROM manual_queue_items mq
+      JOIN chat_sessions cs ON cs.id = mq.session_id
+      WHERE cs.campaign_id = c.id ${sinceFilter}
+    ) esc ON true
+    LEFT JOIN LATERAL (
+      SELECT COUNT(*)::int AS demo_bookings
+      FROM demo_bookings db
+      JOIN chats ch ON ch.id = db.chat_id
+      JOIN chat_sessions cs ON cs.chat_id = ch.id
+      WHERE cs.campaign_id = c.id ${sinceBk} ${sinceFilter}
+    ) d ON true
+    WHERE c.tenant_id = $1
+    ORDER BY sessions_started DESC, c.created_at DESC
+  `, tenantId);
+}

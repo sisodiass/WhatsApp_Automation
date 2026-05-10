@@ -1,0 +1,50 @@
+{
+  "name": "salesautomation-backend",
+  "version": "0.1.0",
+  "description": "WhatsApp CRM backend — modular monolith (Express + Prisma + BullMQ + Socket.io + whatsapp-web.js)",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "nodemon --watch src --ext js,json --ignore src/workers src/index.js",
+    "dev:wa": "nodemon --watch src/workers/whatsapp.worker.js --watch src/modules/whatsapp src/workers/whatsapp.worker.js",
+    "dev:worker": "nodemon --watch src/workers/index.js --watch src/modules src/workers/index.js",
+    "start": "node src/index.js",
+    "start:wa": "node src/workers/whatsapp.worker.js",
+    "start:worker": "node src/workers/index.js",
+    "seed": "node prisma/seed.js",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate dev",
+    "prisma:studio": "prisma studio"
+  },
+  "dependencies": {
+    "@bull-board/api": "^6.5.0",
+    "@bull-board/express": "^6.5.0",
+    "@google/genai": "^0.7.0",
+    "@prisma/client": "^5.22.0",
+    "bcryptjs": "^2.4.3",
+    "bullmq": "^5.21.2",
+    "compression": "^1.7.5",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.1",
+    "express-rate-limit": "^7.4.1",
+    "helmet": "^8.0.0",
+    "ioredis": "^5.4.1",
+    "jsonwebtoken": "^9.0.2",
+    "multer": "^1.4.5-lts.1",
+    "openai": "^4.71.0",
+    "pdf-parse": "^1.1.1",
+    "socket.io": "^4.8.1",
+    "whatsapp-web.js": "^1.27.0",
+    "winston": "^3.15.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.7",
+    "prisma": "^5.22.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

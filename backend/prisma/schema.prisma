@@ -1,0 +1,454 @@
+// SalesAutomation — full schema for all phases.
+// Single-tenant per deploy in v1; tenant_id columns are present so the
+// schema is forward-compatible with multi-tenant later.
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [vector]
+}
+
+// ─── Enums ───────────────────────────────────────────────────────────
+
+enum Role {
+  SUPER_ADMIN
+  ADMIN
+  AGENT
+  VIEWER
+}
+
+enum ConversationState {
+  NEW
+  ACTIVE
+  PAUSED // waiting on customer / human / demo without ending session
+  DEMO_PENDING
+  FOLLOWUP
+  MANUAL
+  CLOSED
+}
+
+enum ChatMode {
+  AI
+  MANUAL
+}
+
+enum MessageDirection {
+  IN
+  OUT
+}
+
+enum MessageSource {
+  CUSTOMER
+  AI
+  AGENT
+  SYSTEM
+}
+
+enum DocumentStatus {
+  PENDING
+  PROCESSING
+  READY
+  FAILED
+}
+
+enum SessionEndReason {
+  CAMPAIGN_REENTRY
+  ADMIN_CLOSED
+  MANUAL_RESET
+}
+
+enum ManualReason {
+  AI_REPLY_LIMIT
+  LOW_CONFIDENCE
+  KEYWORD_TRIGGER
+  ADMIN_FORCED
+  GLOBAL_AI_OFF
+  NEGATIVE_SENTIMENT
+}
+
+enum TemplateType {
+  ONBOARDING_DEFAULT
+  MANUAL_HANDOFF
+  FALLBACK
+  SESSION_RESUME
+  DEMO_CONFIRMATION
+}
+
+// ─── Tenant + Users ──────────────────────────────────────────────────
+
+model Tenant {
+  id        String   @id @default(cuid())
+  slug      String   @unique
+  name      String
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  users            User[]
+  campaigns        Campaign[]
+  kbGroups         KbGroup[]
+  chats            Chat[]
+  tags             Tag[]
+  settings         Setting[]
+  settingsAudit    SettingAuditLog[]
+  messageTemplates MessageTemplate[]
+
+  @@map("tenants")
+}
+
+model User {
+  id           String    @id @default(cuid())
+  tenantId     String    @map("tenant_id")
+  email        String    @unique
+  passwordHash String    @map("password_hash")
+  name         String?
+  role         Role      @default(AGENT)
+  isActive     Boolean   @default(true) @map("is_active")
+  lastLoginAt  DateTime? @map("last_login_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  tenant        Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  notes         Note[]
+  settingsAudit SettingAuditLog[]
+  manualClaimed ManualQueueItem[] @relation("ManualClaimedBy")
+  uploads       KbDocument[]      @relation("KbUploadedBy")
+
+  @@index([tenantId])
+  @@map("users")
+}
+
+// ─── Campaigns ───────────────────────────────────────────────────────
+
+model Campaign {
+  id                String    @id @default(cuid())
+  tenantId          String    @map("tenant_id")
+  name              String
+  tag               String    @unique // CAMPAIGN_X92P
+  isActive          Boolean   @default(true) @map("is_active")
+  expiresAt         DateTime? @map("expires_at")
+  onboardingMessage String    @map("onboarding_message")
+  // Optional friendly text appended after the tag in the wa.me ?text=
+  // prefill (e.g. "Hi, I want to know about pricing"). Customers see the
+  // combined string in WhatsApp and tap send. Matching still happens on
+  // the first token = tag, so customer edits don't break the trigger.
+  entryMessage      String?   @map("entry_message")
+  formLink          String?   @map("form_link")
+  businessType      String?   @map("business_type")
+  // Seeded operator-only campaign(s) (e.g. CAMPAIGN_TEST_INTERNAL).
+  // Cannot be deleted; tag + name are locked. Used to verify QR
+  // reconnection, provider switches, and end-to-end flow without
+  // touching live campaigns.
+  isSystem          Boolean   @default(false) @map("is_system")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  tenant       Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  kbGroups     CampaignKbGroup[]
+  chatSessions ChatSession[]
+
+  @@index([tenantId])
+  @@index([isActive])
+  @@map("campaigns")
+}
+
+model CampaignKbGroup {
+  campaignId String @map("campaign_id")
+  kbGroupId  String @map("kb_group_id")
+
+  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  kbGroup  KbGroup  @relation(fields: [kbGroupId], references: [id], onDelete: Cascade)
+
+  @@id([campaignId, kbGroupId])
+  @@map("campaign_kb_groups")
+}
+
+// ─── Knowledge Base ──────────────────────────────────────────────────
+
+model KbGroup {
+  id                  String   @id @default(cuid())
+  tenantId            String   @map("tenant_id")
+  name                String
+  description         String?
+  confidenceThreshold Float    @default(0.82) @map("confidence_threshold")
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  tenant    Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  documents KbDocument[]
+  campaigns CampaignKbGroup[]
+
+  @@index([tenantId])
+  @@map("kb_groups")
+}
+
+model KbDocument {
+  id           String         @id @default(cuid())
+  kbGroupId    String         @map("kb_group_id")
+  filename     String
+  filePath     String         @map("file_path")
+  status       DocumentStatus @default(PENDING)
+  errorMessage String?        @map("error_message")
+  uploadedById String?        @map("uploaded_by_id")
+  // Lightweight versioning. Replacing a doc creates a new row with
+  // version+1; the previous row is marked is_active=false. Retrieval
+  // filters on is_active=true.
+  version      Int            @default(1)
+  isActive     Boolean        @default(true) @map("is_active")
+  createdAt    DateTime       @default(now()) @map("created_at")
+  updatedAt    DateTime       @updatedAt @map("updated_at")
+
+  kbGroup    KbGroup   @relation(fields: [kbGroupId], references: [id], onDelete: Cascade)
+  uploadedBy User?     @relation("KbUploadedBy", fields: [uploadedById], references: [id], onDelete: SetNull)
+  chunks     KbChunk[]
+
+  @@index([kbGroupId, isActive])
+  @@map("kb_documents")
+}
+
+model KbChunk {
+  id         String                       @id @default(cuid())
+  documentId String                       @map("document_id")
+  chunkIndex Int                          @map("chunk_index")
+  text       String
+  // pgvector column. All providers must produce 1536-dim vectors (OpenAI
+  // text-embedding-3-small natively; Gemini embedding-001 with
+  // outputDimensionality=1536). Switching providers requires re-embedding,
+  // tracked via `embedding_provider` below.
+  embedding  Unsupported("vector(1536)")?
+  // Which provider + exact model produced this vector. Retrieval filters
+  // on (provider, model) so a mid-flight provider OR model upgrade
+  // doesn't compare across embedding spaces.
+  embeddingProvider String?               @map("embedding_provider")
+  embeddingModel    String?               @map("embedding_model")
+  // tsvector generated column + GIN index added in db-init.js as raw SQL
+  // (Postgres-specific; not expressible in Prisma DSL).
+  createdAt  DateTime                     @default(now()) @map("created_at")
+
+  document KbDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@index([documentId])
+  @@index([embeddingProvider, embeddingModel])
+  @@map("kb_chunks")
+}
+
+// ─── Chats / Sessions / Messages ─────────────────────────────────────
+
+model Chat {
+  id                  String    @id @default(cuid())
+  tenantId            String    @map("tenant_id")
+  phone               String // E.164 (e.g. "919999999999")
+  displayName         String?   @map("display_name")
+  currentSessionId    String?   @map("current_session_id")
+  processingLockUntil DateTime? @map("processing_lock_until")
+  lastMessageAt       DateTime? @map("last_message_at")
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+
+  tenant           Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  sessions         ChatSession[]
+  notes            Note[]
+  tags             ChatTag[]
+  manualQueueItems ManualQueueItem[]
+  demoBookings     DemoBooking[]
+
+  @@unique([tenantId, phone])
+  @@index([lastMessageAt])
+  @@map("chats")
+}
+
+model ChatSession {
+  id             String            @id @default(cuid())
+  chatId         String            @map("chat_id")
+  campaignId     String?           @map("campaign_id")
+  state          ConversationState @default(NEW)
+  mode           ChatMode          @default(AI)
+  // Increments ONLY when an outbound message with source=AI is committed.
+  // Customer inbound, agent reply, system messages do NOT count.
+  aiReplyCount   Int               @default(0) @map("ai_reply_count")
+  startedAt      DateTime          @default(now()) @map("started_at")
+  // Bumped on every inbound and outbound. Drives the 7-day reset rule.
+  lastActivityAt DateTime          @default(now()) @map("last_activity_at")
+  // Snapshot fields — denormalized for fast debug reads. Updated when an
+  // AI reply is sent.
+  lastConfidence Float?            @map("last_confidence")
+  lastAiReplyAt  DateTime?         @map("last_ai_reply_at")
+  // Which AI provider produced the most recent AI reply on this session.
+  // Useful for debugging, analytics, and per-provider billing roll-ups.
+  aiProvider     String?           @map("ai_provider")
+  endedAt        DateTime?         @map("ended_at")
+  endedReason    SessionEndReason? @map("ended_reason")
+
+  chat             Chat              @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  campaign         Campaign?         @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  messages         Message[]
+  manualQueueItems ManualQueueItem[]
+
+  // Active-session lookup uses (chatId, endedAt IS NULL).
+  @@index([chatId, endedAt])
+  @@index([campaignId])
+  @@map("chat_sessions")
+}
+
+model Message {
+  id          String           @id @default(cuid())
+  sessionId   String           @map("session_id")
+  direction   MessageDirection
+  source      MessageSource
+  body        String
+  // KB chunk ids (kb_chunks.id) that grounded this AI reply (empty for non-AI sources).
+  kbChunkIds  String[]         @map("kb_chunk_ids")
+  confidence  Float?
+  // For inbound dedup against whatsapp-web.js retries.
+  waMessageId String?          @unique @map("wa_message_id")
+  // Set when an OUT message is actually delivered to WhatsApp. The wa-worker
+  // checks `sent_at IS NULL` before sending to prevent duplicate sends on
+  // queue retries. Combined with BullMQ jobId="out-<messageId>", this is
+  // the outbound-deduplication mechanism.
+  sentAt      DateTime?        @map("sent_at")
+  createdAt   DateTime         @default(now()) @map("created_at")
+
+  session ChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId, createdAt])
+  @@map("messages")
+}
+
+// ─── Tags / Notes ────────────────────────────────────────────────────
+
+model Tag {
+  id        String   @id @default(cuid())
+  tenantId  String   @map("tenant_id")
+  name      String
+  color     String?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  tenant Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  chats  ChatTag[]
+
+  @@unique([tenantId, name])
+  @@map("tags")
+}
+
+model ChatTag {
+  chatId String @map("chat_id")
+  tagId  String @map("tag_id")
+
+  chat Chat @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  tag  Tag  @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([chatId, tagId])
+  @@map("chat_tags")
+}
+
+model Note {
+  id        String   @id @default(cuid())
+  chatId    String   @map("chat_id")
+  authorId  String?  @map("author_id")
+  body      String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  chat   Chat  @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  author User? @relation(fields: [authorId], references: [id], onDelete: SetNull)
+
+  @@index([chatId])
+  @@map("notes")
+}
+
+// ─── Settings ────────────────────────────────────────────────────────
+
+model Setting {
+  id          String   @id @default(cuid())
+  tenantId    String   @map("tenant_id")
+  key         String
+  value       Json
+  // True when `value` holds an AES-256-GCM ciphertext envelope. The crypto
+  // util transparently encrypts/decrypts based on this flag.
+  encrypted   Boolean  @default(false)
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  updatedById String?  @map("updated_by_id")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, key])
+  @@map("settings")
+}
+
+model SettingAuditLog {
+  id          String   @id @default(cuid())
+  tenantId    String   @map("tenant_id")
+  key         String
+  oldValue    Json?    @map("old_value")
+  newValue    Json?    @map("new_value")
+  changedById String?  @map("changed_by_id")
+  changedAt   DateTime @default(now()) @map("changed_at")
+
+  tenant    Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  changedBy User?  @relation(fields: [changedById], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, key])
+  @@index([changedAt])
+  @@map("settings_audit_logs")
+}
+
+// ─── Message Templates ───────────────────────────────────────────────
+// Replaces hardcoded reply strings (handoff, fallback, resume, demo) in
+// settings. Per-tenant; seeded with sensible defaults.
+
+model MessageTemplate {
+  id        String       @id @default(cuid())
+  tenantId  String       @map("tenant_id")
+  name      String // unique key per tenant (e.g. "manual_handoff")
+  type      TemplateType
+  content   String
+  // Placeholder names allowed in `content`, e.g. ["customer_name", "demo_link"].
+  variables String[]     @default([])
+  isActive  Boolean      @default(true) @map("is_active")
+  createdAt DateTime     @default(now()) @map("created_at")
+  updatedAt DateTime     @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, name])
+  @@index([tenantId, type])
+  @@map("message_templates")
+}
+
+// ─── Manual Queue + Demo Bookings ────────────────────────────────────
+
+model ManualQueueItem {
+  id          String       @id @default(cuid())
+  chatId      String       @map("chat_id")
+  sessionId   String       @map("session_id")
+  reason      ManualReason
+  createdAt   DateTime     @default(now()) @map("created_at")
+  claimedById String?      @map("claimed_by_id")
+  claimedAt   DateTime?    @map("claimed_at")
+  resolvedAt  DateTime?    @map("resolved_at")
+
+  chat      Chat        @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  session   ChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  claimedBy User?       @relation("ManualClaimedBy", fields: [claimedById], references: [id], onDelete: SetNull)
+
+  @@index([resolvedAt])
+  @@index([chatId])
+  @@map("manual_queue_items")
+}
+
+model DemoBooking {
+  id             String   @id @default(cuid())
+  chatId         String   @map("chat_id")
+  teamsMeetingId String?  @map("teams_meeting_id")
+  teamsJoinUrl   String?  @map("teams_join_url")
+  scheduledAt    DateTime @map("scheduled_at")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  chat Chat @relation(fields: [chatId], references: [id], onDelete: Cascade)
+
+  @@index([chatId])
+  @@map("demo_bookings")
+}
