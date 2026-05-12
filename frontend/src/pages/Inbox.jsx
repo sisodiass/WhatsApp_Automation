@@ -28,11 +28,13 @@ const MODE_VARIANT = {
 export default function Inbox() {
   const [items, setItems] = useState([]);
   const [tags, setTags] = useState([]);
+  const [campaigns, setCampaigns] = useState([]);
   const [loading, setLoading] = useState(true);
   const [q, setQ] = useState("");
   const [stateFilter, setStateFilter] = useState("");
   const [modeFilter, setModeFilter] = useState("");
   const [tagFilter, setTagFilter] = useState("");
+  const [campaignFilter, setCampaignFilter] = useState("");
 
   async function load() {
     setLoading(true);
@@ -42,12 +44,15 @@ export default function Inbox() {
       if (stateFilter) params.state = stateFilter;
       if (modeFilter) params.mode = modeFilter;
       if (tagFilter) params.tag = tagFilter;
-      const [chats, tagList] = await Promise.all([
+      if (campaignFilter) params.campaignId = campaignFilter;
+      const [chats, tagList, campaignList] = await Promise.all([
         api.get("/chats", { params }),
         api.get("/tags"),
+        api.get("/campaigns"),
       ]);
       setItems(chats.data.items || []);
       setTags(tagList.data.items || []);
+      setCampaigns(campaignList.data.items || []);
     } finally {
       setLoading(false);
     }
@@ -73,7 +78,7 @@ export default function Inbox() {
       socket.off("manual_queue:new", onChange);
       clearTimeout(timer);
     };
-  }, [q, stateFilter, modeFilter, tagFilter]);
+  }, [q, stateFilter, modeFilter, tagFilter, campaignFilter]);
 
   const tagsById = useMemo(() => Object.fromEntries(tags.map((t) => [t.id, t])), [tags]);
 
@@ -87,10 +92,11 @@ export default function Inbox() {
     setStateFilter("");
     setModeFilter("");
     setTagFilter("");
+    setCampaignFilter("");
     setTimeout(load, 0);
   }
 
-  const hasFilters = q || stateFilter || modeFilter || tagFilter;
+  const hasFilters = q || stateFilter || modeFilter || tagFilter || campaignFilter;
 
   return (
     <div className="flex h-full flex-col">
@@ -143,6 +149,16 @@ export default function Inbox() {
             <option key={t.id} value={t.id}>{t.name}</option>
           ))}
         </Select>
+        <Select
+          value={campaignFilter}
+          onChange={(e) => setCampaignFilter(e.target.value)}
+          className="w-auto min-w-[9rem]"
+        >
+          <option value="">All campaigns</option>
+          {campaigns.map((c) => (
+            <option key={c.id} value={c.id}>{c.name}</option>
+          ))}
+        </Select>
         <Button type="submit" size="sm">
           <Filter className="h-3.5 w-3.5" />
           Apply
@@ -183,6 +199,14 @@ export default function Inbox() {
                           )}
                         </div>
                         <div className="mt-1 flex flex-wrap items-center gap-1">
+                          {session?.campaign && (
+                            <span
+                              title={`Campaign tag: ${session.campaign.tag}`}
+                              className="rounded-full border border-primary/40 bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary"
+                            >
+                              {session.campaign.name}
+                            </span>
+                          )}
                           {(c.tags || []).map((ct) => {
                             const tag = ct.tag || tagsById[ct.tagId];
                             if (!tag) return null;

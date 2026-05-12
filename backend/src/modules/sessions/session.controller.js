@@ -7,7 +7,7 @@ import { listMessagesForSession, listSessionsForChat } from "./session.service.j
 export const listChats = asyncHandler(async (req, res) => {
   const tenantId = await getDefaultTenantId();
   const limit = Math.min(parseInt(req.query.limit || "50", 10), 200);
-  const { q, state, mode, tag } = req.query;
+  const { q, state, mode, tag, campaignId } = req.query;
 
   // Build a single sessions.some clause so all session-level filters resolve
   // against the SAME session (otherwise Prisma allows different sessions to
@@ -27,6 +27,7 @@ export const listChats = asyncHandler(async (req, res) => {
     sessionsSome.mode = mode;
     sessionsSome.endedAt = null;
   }
+  if (campaignId) sessionsSome.campaignId = campaignId;
 
   const where = {
     tenantId,
@@ -56,6 +57,7 @@ export const listChats = asyncHandler(async (req, res) => {
           startedAt: true,
           lastActivityAt: true,
           endedAt: true,
+          campaign: { select: { id: true, name: true, tag: true } },
         },
       },
       tags: { include: { tag: true } },
