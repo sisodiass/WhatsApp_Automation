@@ -60,12 +60,15 @@ export async function processOutgoingJob(job) {
     warmup ? cfg["wa.warmup_delay_max_seconds"] ?? 40 : cfg["wa.delay_max_seconds"] ?? 25,
   );
 
-  // SYSTEM messages bypass the typing simulation by default. AI messages
-  // get a randomized delay unless the producer explicitly asked for 0.
+  // AI and SYSTEM (onboarding, fallback, handoff templates) both get the
+  // randomized delay + typing simulation so the conversation feels human.
+  // AGENT replies are sent instantly — a human just typed them in the UI
+  // and adding more wait would frustrate the operator.
+  // Producer can override with an explicit delayMs (use 0 for instant).
   let typingMs;
   if (delayMs !== null && delayMs !== undefined) {
     typingMs = Math.max(0, Number(delayMs));
-  } else if (msg.source === "AI") {
+  } else if (msg.source === "AI" || msg.source === "SYSTEM") {
     const span = Math.max(0, max - min);
     typingMs = (min + Math.random() * span) * 1000;
   } else {
