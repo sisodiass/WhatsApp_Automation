@@ -32,7 +32,7 @@ backend/
 ├── prisma/
 │   ├── schema.prisma              # full schema, all phases
 │   └── seed.js                    # tenant + super admin + templates + test campaign
-├── ecosystem.config.js            # 3-process PM2 layout
+├── ecosystem.config.cjs            # 3-process PM2 layout
 └── src/
     ├── index.js                   # api process entrypoint
     ├── config/                    # env + runtime settings cache

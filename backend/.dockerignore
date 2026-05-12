@@ -10,6 +10,6 @@ uploads
 .git
 .gitignore
 *.md
-ecosystem.config.js
+ecosystem.config.cjs
 frontend
 docker-compose.yml

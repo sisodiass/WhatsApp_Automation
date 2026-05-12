@@ -268,7 +268,7 @@ If you self-host the frontend: rebuild and copy `dist/` to your nginx root.
 
 ```bash
 cd /opt/sa/backend
-pm2 reload ecosystem.config.js --env production
+pm2 reload ecosystem.config.cjs --env production
 pm2 status                                 # all three should be "online"
 ```
 
@@ -340,7 +340,7 @@ git log --oneline -10                      # find the previous good commit
 git checkout <previous-good-sha>
 cd backend
 npm install --omit=dev
-pm2 reload ecosystem.config.js --env production
+pm2 reload ecosystem.config.cjs --env production
 ```
 
 ### 7.2 Schema rollback
@@ -395,7 +395,7 @@ DEPLOY
 [ ] SSH to VPS, git pull --ff-only
 [ ] Trigger fresh backup if migration is destructive
 [ ] npm install --omit=dev + npx prisma migrate deploy
-[ ] pm2 reload ecosystem.config.js --env production
+[ ] pm2 reload ecosystem.config.cjs --env production
 [ ] pm2 status — all online, restart counts low
 
 POST-DEPLOY (within 5 min)

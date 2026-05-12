@@ -148,7 +148,7 @@ hash before you can log in.
 ## 8. Start with PM2
 
 ```bash
-pm2 start ecosystem.config.js --env production
+pm2 start ecosystem.config.cjs --env production
 pm2 save
 pm2 startup systemd       # follow the printed command to enable on boot
 ```
@@ -438,7 +438,7 @@ git pull
 cd backend
 npm install --omit=dev
 npx prisma migrate deploy
-pm2 reload ecosystem.config.js --env production   # zero-downtime restart
+pm2 reload ecosystem.config.cjs --env production   # zero-downtime restart
 ```
 
 For frontend, push to your Git branch — Cloudflare Pages rebuilds automatically.

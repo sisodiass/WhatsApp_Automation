@@ -9,7 +9,7 @@ Quick reference for common production scenarios. Assumes the deploy from
 pm2 status                    # who's up
 pm2 logs                      # tail everything
 pm2 logs sa-wa-worker         # tail one
-pm2 reload ecosystem.config.js --env production  # zero-downtime restart
+pm2 reload ecosystem.config.cjs --env production  # zero-downtime restart
 pm2 restart sa-wa-worker      # hard restart one process
 pm2 monit                     # interactive top
 ```
@@ -130,7 +130,7 @@ to see every change.
 ### Restart everything cleanly
 
 ```bash
-pm2 reload ecosystem.config.js --env production
+pm2 reload ecosystem.config.cjs --env production
 ```
 
 `reload` keeps the API alive during the restart of each process (PM2 starts
@@ -220,7 +220,7 @@ value → Enter. The AI provider cache invalidates within seconds.
 
 Watch for:
 - `sa-wa-worker` RSS climbing past 700M consistently → Chromium leak. The
-  `max_memory_restart: 800M` in [ecosystem.config.js](backend/ecosystem.config.js)
+  `max_memory_restart: 800M` in [ecosystem.config.cjs](backend/ecosystem.config.cjs)
   catches this; investigate if it's restarting more than 1×/day.
 - `sa-worker` queue depth growing during peaks → split scheduler off into its
   own process. Add a 4th PM2 entry with `script: "src/workers/scheduler-only.js"`.
