@@ -20,13 +20,24 @@ sudo apt-get update -y
 sudo DEBIAN_FRONTEND=noninteractive apt-get upgrade -y
 
 step "2/7  Install system packages + Chromium runtime libs"
+# Add PostgreSQL's official APT repo so we can get postgresql-client-16
+# (Ubuntu 22.04 'jammy' default repos only ship up to pg14).
+if [[ ! -f /etc/apt/sources.list.d/pgdg.list ]]; then
+  sudo apt-get install -y curl ca-certificates gnupg lsb-release
+  curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+    | sudo gpg --dearmor -o /etc/apt/trusted.gpg.d/postgresql.gpg
+  echo "deb https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
+    | sudo tee /etc/apt/sources.list.d/pgdg.list >/dev/null
+  sudo apt-get update -y
+fi
+
 sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
   build-essential curl git \
   postgresql-client-16 redis-tools \
   nginx certbot python3-certbot-nginx \
   ufw \
   libnss3 libatk-bridge2.0-0 libdrm2 libxkbcommon0 libxcomposite1 \
-  libxdamage1 libxrandr2 libgbm1 libpango-1.0-0 libcairo2 libasound2t64
+  libxdamage1 libxrandr2 libgbm1 libpango-1.0-0 libcairo2 libasound2
 
 step "3/7  Install Docker (for Postgres + Redis containers)"
 if ! command -v docker >/dev/null 2>&1; then
