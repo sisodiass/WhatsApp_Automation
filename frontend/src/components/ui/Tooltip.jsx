@@ -51,7 +51,10 @@ export function Tooltip({ content, children, side = "top", className }) {
         <span
           role="tooltip"
           className={cn(
-            "pointer-events-none absolute z-50 max-w-xs whitespace-normal rounded-md border bg-popover px-2.5 py-1.5 text-xs text-popover-foreground shadow-md",
+            // Explicit width: absolute children inside a narrow icon-sized
+            // parent shrink-to-fit to the longest word. Use w-64 + viewport
+            // cap so tooltips are always readable.
+            "pointer-events-none absolute z-50 w-64 max-w-[calc(100vw-2rem)] whitespace-normal rounded-md border bg-popover px-2.5 py-1.5 text-xs text-popover-foreground shadow-md",
             "animate-fade-in",
             sideStyles[side],
           )}
