@@ -57,7 +57,10 @@ const NAV_SECTIONS = [
       // Bull-Board needs the JWT in a query param because browser navigation
       // doesn't carry the Authorization header. The backend's /admin/queues
       // mount accepts ?token= and copies it into the Bearer header.
-      { external: true, label: "Bull-Board", icon: Wrench, hrefBuilder: (token) => `/admin/queues?token=${encodeURIComponent(token || "")}` },
+      // Prefix with VITE_SOCKET_URL (bare API origin) so it works when the
+      // frontend lives on a different origin than the backend (prod). Empty
+      // in dev — Vite proxy forwards /admin/queues to the backend.
+      { external: true, label: "Bull-Board", icon: Wrench, hrefBuilder: (token) => `${import.meta.env.VITE_SOCKET_URL || ""}/admin/queues?token=${encodeURIComponent(token || "")}` },
     ],
   },
 ];
