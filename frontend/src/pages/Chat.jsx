@@ -258,7 +258,18 @@ export default function Chat() {
                       {m.direction === "OUT" && (
                         <span>{m.sentAt ? "sent" : "queued"}</span>
                       )}
-                      <span>{new Date(m.createdAt).toLocaleTimeString()}</span>
+                      {/* Outbound: prefer sentAt (actual delivery time) so the
+                          delay/typing simulation isn't hidden by the createdAt
+                          timestamp. Falls back to createdAt while still queued. */}
+                      <span
+                        title={
+                          m.sentAt && m.sentAt !== m.createdAt
+                            ? `Created ${new Date(m.createdAt).toLocaleTimeString()} · Sent ${new Date(m.sentAt).toLocaleTimeString()}`
+                            : undefined
+                        }
+                      >
+                        {new Date(m.sentAt || m.createdAt).toLocaleTimeString()}
+                      </span>
                     </div>
                   </div>
                 </div>
