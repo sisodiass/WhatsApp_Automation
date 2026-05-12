@@ -42,8 +42,12 @@ sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
   postgresql-client-16 redis-tools \
   nginx certbot python3-certbot-nginx \
   ufw \
-  libnss3 libatk-bridge2.0-0 libdrm2 libxkbcommon0 libxcomposite1 \
-  libxdamage1 libxrandr2 libgbm1 libpango-1.0-0 libcairo2 libasound2
+  libnss3 libnspr4 libatk-bridge2.0-0 libatk1.0-0 \
+  libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxrandr2 \
+  libgbm1 libpango-1.0-0 libpangocairo-1.0-0 libcairo2 libasound2 \
+  libcups2 libxss1 libxshmfence1 libgtk-3-0 \
+  libxext6 libxfixes3 libxrender1 libdbus-1-3 \
+  fonts-liberation
 
 step "3/7  Install Docker (for Postgres + Redis containers)"
 if ! command -v docker >/dev/null 2>&1; then
