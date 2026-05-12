@@ -45,7 +45,9 @@ export async function sendFallbackMessage({ session, tenantId, confidence, reaso
     },
   });
   emitChatMessage({ ...out, chatId: session.chatId });
-  await enqueueOutbound(out.id, { delayMs: 0 });
+  // No delayMs — let the worker apply the same delay + typing simulation
+  // we use for AI replies, so the fallback feels human-paced.
+  await enqueueOutbound(out.id);
 
   log.info("fallback sent (mode stays AI)", {
     sessionId: session.id,

@@ -112,7 +112,9 @@ async function escalateToManual(session, reason, tenantId) {
       },
     });
     emitChatMessage({ ...out, chatId: session.chatId });
-    await enqueueOutbound(out.id, { delayMs: 0 });
+    // No delayMs — SYSTEM handoff template gets the same human-paced
+    // delay + typing simulation as AI replies.
+    await enqueueOutbound(out.id);
   }
   log.info("escalated to MANUAL", { sessionId: session.id, reason });
 }

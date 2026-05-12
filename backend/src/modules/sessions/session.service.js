@@ -164,9 +164,11 @@ async function recordSystemOutbound({ sessionId, chatId, body }) {
 
 // SYSTEM messages (onboarding / resume / handoff) go through the
 // outgoing-messages queue so they share the rate limiter and A3 dedup.
-// They request delayMs:0 so the customer sees them promptly.
+// No explicit delayMs — the worker's source-based logic applies the
+// same randomized delay + typing simulation as AI replies, so templates
+// feel human-paced instead of arriving in the same second as the trigger.
 async function dispatchSystemOutbound(messageId) {
-  await enqueueOutbound(messageId, { delayMs: 0 });
+  await enqueueOutbound(messageId);
 }
 
 // ─── The engine ───────────────────────────────────────────────────────

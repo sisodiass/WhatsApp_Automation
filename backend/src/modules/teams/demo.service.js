@@ -65,7 +65,9 @@ export async function bookDemo({ tenantId, chatId, scheduledAt, durationMinutes 
       },
     });
     emitChatMessage({ ...out, chatId });
-    await enqueueOutbound(out.id, { delayMs: 0 });
+    // No delayMs — DEMO_CONFIRMATION is a SYSTEM template; worker applies
+    // the same randomized delay + typing simulation as AI replies.
+    await enqueueOutbound(out.id);
   }
 
   log.info("demo booked", {
