@@ -68,11 +68,8 @@ export default function Whatsapp() {
         width: 280,
         margin: 1,
         color: {
-          dark: getComputedStyle(document.documentElement)
-            .getPropertyValue("--foreground")
-            .trim()
-            ? `hsl(${getComputedStyle(document.documentElement).getPropertyValue("--foreground").trim()})`
-            : "#000000",
+          // qrcode lib only parses hex; CSS hsl()/var() strings throw.
+          dark: "#fafafa",
           light: "#00000000",
         },
       },
