@@ -13,6 +13,12 @@
 
 set -euo pipefail
 
+# Suppress Ubuntu 22.04's interactive "which services to restart" dialog
+# that slips past DEBIAN_FRONTEND=noninteractive.
+export NEEDRESTART_MODE=a
+export NEEDRESTART_SUSPEND=1
+export DEBIAN_FRONTEND=noninteractive
+
 step() { printf "\n\033[1;36m==> %s\033[0m\n" "$*"; }
 
 step "1/7  System update"
