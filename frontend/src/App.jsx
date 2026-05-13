@@ -14,6 +14,7 @@ import Settings from "./pages/Settings.jsx";
 import Health from "./pages/Health.jsx";
 import Audit from "./pages/Audit.jsx";
 import Analytics from "./pages/Analytics.jsx";
+import Help from "./pages/Help.jsx";
 import ProtectedRoute from "./components/ProtectedRoute.jsx";
 import AppShell from "./components/AppShell.jsx";
 import { useThemeStore } from "./stores/themeStore.js";
@@ -50,6 +51,7 @@ export default function App() {
         <Route path="/health" element={<Health />} />
         <Route path="/analytics" element={<Analytics />} />
         <Route path="/chats/:chatId" element={<Chat />} />
+        <Route path="/help" element={<Help />} />
 
         {/* Admin-only routes use ProtectedRoute again to gate by role. */}
         <Route

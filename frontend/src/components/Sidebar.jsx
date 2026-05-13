@@ -7,6 +7,7 @@ import {
   ExternalLink,
   FileText,
   Heart,
+  HelpCircle,
   Inbox,
   LayoutDashboard,
   ListTodo,
@@ -61,6 +62,12 @@ const NAV_SECTIONS = [
       // frontend lives on a different origin than the backend (prod). Empty
       // in dev — Vite proxy forwards /admin/queues to the backend.
       { external: true, label: "Bull-Board", icon: Wrench, hrefBuilder: (token) => `${import.meta.env.VITE_SOCKET_URL || ""}/admin/queues?token=${encodeURIComponent(token || "")}` },
+    ],
+  },
+  {
+    label: "Resources",
+    items: [
+      { to: "/help", label: "Help Guide", icon: HelpCircle },
     ],
   },
 ];

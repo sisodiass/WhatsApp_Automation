@@ -3,6 +3,7 @@ import { Outlet } from "react-router-dom";
 import Sidebar from "./Sidebar.jsx";
 import Toaster from "./Toaster.jsx";
 import ConfirmDialog from "./ConfirmDialog.jsx";
+import NotificationsBell from "./NotificationsBell.jsx";
 import { api } from "../lib/api.js";
 import { getSocket } from "../lib/socket.js";
 
@@ -40,11 +41,20 @@ export default function AppShell() {
   }, []);
 
   return (
-    <div className="flex h-full bg-background text-foreground">
+    <div className="app-shell-root flex h-full bg-background text-foreground">
       <Sidebar badges={badges} />
-      <main className="scrollbar-thin flex-1 overflow-y-auto">
-        <Outlet />
-      </main>
+      <div className="app-shell-col flex flex-1 flex-col overflow-hidden">
+        {/* Top utility bar — currently just the notifications bell. */}
+        <div
+          data-print="hide"
+          className="flex h-10 shrink-0 items-center justify-end gap-2 border-b bg-card px-3"
+        >
+          <NotificationsBell />
+        </div>
+        <main className="scrollbar-thin flex-1 overflow-y-auto">
+          <Outlet />
+        </main>
+      </div>
       <Toaster />
       <ConfirmDialog />
     </div>
