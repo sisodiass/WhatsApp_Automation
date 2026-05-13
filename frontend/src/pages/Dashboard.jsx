@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import {
   ArrowUpRight,
   Bot,
   CircleCheck,
   CircleAlert,
+  HelpCircle,
   Inbox as InboxIcon,
   ListTodo,
   MessageCircle,
@@ -35,6 +36,7 @@ const WA_VARIANT = {
 };
 
 export default function Dashboard() {
+  const navigate = useNavigate();
   const [waStatus, setWaStatus] = useState(null);
   const [queueCount, setQueueCount] = useState(null);
   const [overview, setOverview] = useState(null);
@@ -79,7 +81,20 @@ export default function Dashboard() {
       <PageHeader
         title="Overview"
         subtitle="WhatsApp · Last 7 days"
-        actions={<GlobalAiSwitch />}
+        actions={
+          <div className="flex items-center gap-2">
+            <GlobalAiSwitch />
+            <Button
+              variant="outline"
+              size="md"
+              onClick={() => navigate("/help")}
+              title="Open the in-app user guide"
+            >
+              <HelpCircle className="h-4 w-4" />
+              Help Guide
+            </Button>
+          </div>
+        }
       />
 
       <div className="flex-1 space-y-6 p-6">
