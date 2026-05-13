@@ -47,3 +47,10 @@ backend/prisma/.cache/
 **/.env
 **/.wwebjs_auth/
 **/.wwebjs_cache/
+
+# Claude Code worktrees and session metadata.
+# These get created automatically by `claude` and must never be committed:
+# accidentally tracking a worktree directory leaves a gitlink (mode 160000)
+# without a matching .gitmodules entry, which breaks `git submodule update`
+# on any clone — including Cloudflare Pages, which always runs it.
+.claude/
