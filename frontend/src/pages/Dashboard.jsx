@@ -74,6 +74,18 @@ export default function Dashboard() {
   }, []);
 
   const waState = waStatus?.status?.state || (loading ? null : "DISCONNECTED");
+  // `me` is the linked WhatsApp number, set by the wa-worker on the "ready"
+  // event (see backend/.../whatsapp.bus.js → wa:me). Format: usually an
+  // E.164-style string without the leading "+" (e.g. "919812345678"), and
+  // occasionally a raw JID like "919812345678@c.us" — strip the suffix and
+  // add a leading "+" for display.
+  const connectedNumber = (() => {
+    const raw = waStatus?.me;
+    if (!raw) return null;
+    const stripped = String(raw).replace(/@.*$/, "");
+    if (!stripped) return null;
+    return stripped.startsWith("+") ? stripped : `+${stripped}`;
+  })();
   const ov = overview?.overview;
 
   return (
@@ -106,6 +118,7 @@ export default function Dashboard() {
             icon={MessageCircle}
             label="WhatsApp"
             value={waState || "—"}
+            sublabel={waState === "READY" ? connectedNumber : null}
             variant={waState ? WA_VARIANT[waState] || "muted" : "muted"}
             href="/whatsapp"
             loading={loading}
@@ -161,7 +174,7 @@ export default function Dashboard() {
   );
 }
 
-function StatusCard({ icon: Icon, label, value, variant, href, loading }) {
+function StatusCard({ icon: Icon, label, value, sublabel, variant, href, loading }) {
   return (
     <Link to={href} className="block">
       <Card className="transition-colors hover:border-foreground/20">
@@ -174,10 +187,17 @@ function StatusCard({ icon: Icon, label, value, variant, href, loading }) {
             {loading ? (
               <Skeleton className="mt-2 h-5 w-24" />
             ) : (
-              <div className="mt-1.5 flex items-center gap-2">
-                <Dot variant={variant} />
-                <span className="truncate text-sm font-semibold">{value}</span>
-              </div>
+              <>
+                <div className="mt-1.5 flex items-center gap-2">
+                  <Dot variant={variant} />
+                  <span className="truncate text-sm font-semibold">{value}</span>
+                </div>
+                {sublabel && (
+                  <div className="mt-1 truncate font-mono text-xs text-muted-foreground">
+                    {sublabel}
+                  </div>
+                )}
+              </>
             )}
           </div>
           <ArrowUpRight className="h-4 w-4 shrink-0 text-muted-foreground/60" />
