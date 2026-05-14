@@ -15,6 +15,8 @@ import { promisify } from "node:util";
 import { child } from "../../shared/logger.js";
 import { redis } from "../../shared/redis.js";
 import { Channels, publish } from "../../modules/whatsapp/whatsapp.bus.js";
+import { processBulkDripTick } from "./bulk-drip.worker.js";
+import { processFollowupTick } from "./followup-tick.worker.js";
 
 const log = child("q:scheduler");
 const execp = promisify(exec);
@@ -43,6 +45,10 @@ export async function processSchedulerJob(job) {
       return runWatchdog();
     case "backup":
       return runBackup();
+    case "bulk-drip":
+      return processBulkDripTick();
+    case "followup-tick":
+      return processFollowupTick();
     default:
       log.warn("unknown scheduler job", { name: job.name });
       return { skipped: "unknown" };

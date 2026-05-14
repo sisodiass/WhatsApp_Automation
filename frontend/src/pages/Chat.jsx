@@ -8,6 +8,7 @@ import {
   PauseCircle,
   PlayCircle,
   Send,
+  Sparkles,
   UserCog,
 } from "lucide-react";
 import { api } from "../lib/api.js";
@@ -48,6 +49,10 @@ export default function Chat() {
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [demoOpen, setDemoOpen] = useState(false);
+  // M7: AI-suggested replies state.
+  const [suggestTone, setSuggestTone] = useState("professional");
+  const [suggestBusy, setSuggestBusy] = useState(false);
+  const [suggestions, setSuggestions] = useState(null);
   const scrollRef = useRef(null);
 
   async function loadShell() {
@@ -333,26 +338,90 @@ export default function Chat() {
 
           {/* Reply box */}
           {activeSession && !activeSession.endedAt && !loading && (
-            <form onSubmit={send} className="flex items-end gap-2 border-t bg-background p-4">
-              <Textarea
-                value={reply}
-                onChange={(e) => setReply(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) send(e);
-                }}
-                placeholder={
-                  activeSession.mode === "AI"
-                    ? "Type a manual reply (sending will switch this session to MANUAL)…"
-                    : "Type a reply to the customer…"
-                }
-                rows={2}
-                className="flex-1"
-              />
-              <Button type="submit" disabled={busy || !reply.trim()} size="lg">
-                <Send className="h-4 w-4" />
-                {busy ? "Sending…" : "Send"}
-              </Button>
-            </form>
+            <div className="border-t bg-background">
+              {/* M7: AI suggested replies. Above the input so it doesn't
+                  steal vertical space when unused. */}
+              <div className="flex items-center gap-2 px-4 pt-3">
+                <Button
+                  type="button"
+                  size="xs"
+                  variant="outline"
+                  disabled={suggestBusy || messages.length === 0}
+                  onClick={async () => {
+                    setSuggestBusy(true);
+                    try {
+                      const { data } = await api.post(`/chats/${chatId}/suggest-replies`, {
+                        tone: suggestTone,
+                      });
+                      setSuggestions(data.suggestions || []);
+                    } catch (err) {
+                      toast.error(err.response?.data?.error?.message || "Suggest failed");
+                    } finally {
+                      setSuggestBusy(false);
+                    }
+                  }}
+                >
+                  <Sparkles className="h-3 w-3" />
+                  {suggestBusy ? "Thinking…" : "Suggest replies"}
+                </Button>
+                <select
+                  value={suggestTone}
+                  onChange={(e) => setSuggestTone(e.target.value)}
+                  className="h-7 rounded-md border bg-background px-2 text-xs"
+                >
+                  <option value="professional">Professional</option>
+                  <option value="friendly">Friendly</option>
+                  <option value="brief">Brief</option>
+                </select>
+                {suggestions && (
+                  <button
+                    type="button"
+                    onClick={() => setSuggestions(null)}
+                    className="ml-auto text-xs text-muted-foreground hover:text-foreground"
+                  >
+                    Dismiss
+                  </button>
+                )}
+              </div>
+              {suggestions && suggestions.length > 0 && (
+                <ul className="space-y-1.5 px-4 pt-2">
+                  {suggestions.map((s, i) => (
+                    <li key={i}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setReply(s);
+                          setSuggestions(null);
+                        }}
+                        className="block w-full rounded-md border bg-info/5 px-3 py-1.5 text-left text-sm transition-colors hover:bg-info/10"
+                      >
+                        {s}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <form onSubmit={send} className="flex items-end gap-2 p-4">
+                <Textarea
+                  value={reply}
+                  onChange={(e) => setReply(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) send(e);
+                  }}
+                  placeholder={
+                    activeSession.mode === "AI"
+                      ? "Type a manual reply (sending will switch this session to MANUAL)…"
+                      : "Type a reply to the customer…"
+                  }
+                  rows={2}
+                  className="flex-1"
+                />
+                <Button type="submit" disabled={busy || !reply.trim()} size="lg">
+                  <Send className="h-4 w-4" />
+                  {busy ? "Sending…" : "Send"}
+                </Button>
+              </form>
+            </div>
           )}
         </section>
 

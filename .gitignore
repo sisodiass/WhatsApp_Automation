@@ -54,3 +54,7 @@ backend/prisma/.cache/
 # without a matching .gitmodules entry, which breaks `git submodule update`
 # on any clone — including Cloudflare Pages, which always runs it.
 .claude/
+
+# Root-level npm install artifact (deps belong in backend/ + frontend/)
+/package.json
+/package-lock.json

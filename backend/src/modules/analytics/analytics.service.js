@@ -2,6 +2,10 @@
 // table — everything we need lives in chat_sessions + manual_queue_items
 // + demo_bookings + messages. Recomputed on every request; the volumes
 // at this scale don't need a precomputed materialized view.
+//
+// M8 adds advanced CRM rollups on top: source-wise conversion, pipeline
+// funnel, bulk-campaign performance, follow-up engine performance, and
+// automation engine performance.
 
 import { prisma } from "../../shared/prisma.js";
 
@@ -113,4 +117,174 @@ export async function getCampaignBreakdown(tenantId, period) {
     WHERE c.tenant_id = $1
     ORDER BY sessions_started DESC, c.created_at DESC
   `, tenantId);
+}
+
+// ─── M8: advanced CRM rollups ───────────────────────────────────────
+
+// Lead source breakdown with WON / total conversion. Useful for "which
+// channels actually convert?". Excludes leads with no source.
+export async function getSourceBreakdown(tenantId, period) {
+  const since = periodSince(period);
+  const where = {
+    tenantId,
+    source: { not: null },
+    ...(since ? { createdAt: { gte: since } } : {}),
+  };
+  const grouped = await prisma.lead.groupBy({
+    by: ["source"],
+    where,
+    _count: true,
+    orderBy: { _count: { id: "desc" } },
+  });
+  // Won counts per source — second query keeps the GROUP BY simple
+  // (Prisma's groupBy doesn't support conditional counts directly).
+  const wonGrouped = await prisma.lead.groupBy({
+    by: ["source"],
+    where: {
+      ...where,
+      stage: { category: "WON" },
+    },
+    _count: true,
+  });
+  const wonBySource = new Map(wonGrouped.map((g) => [g.source, g._count]));
+  return grouped.map((g) => {
+    const won = wonBySource.get(g.source) ?? 0;
+    return {
+      source: g.source,
+      total: g._count,
+      won,
+      conversion: g._count > 0 ? Number((won / g._count).toFixed(3)) : 0,
+    };
+  });
+}
+
+// Pipeline funnel — counts per stage for the default pipeline (the
+// "active" one). Caller can pass `pipelineId` to scope to another.
+export async function getPipelineFunnel(tenantId, pipelineId) {
+  let pipeline;
+  if (pipelineId) {
+    pipeline = await prisma.pipeline.findFirst({
+      where: { id: pipelineId, tenantId },
+      include: { stages: { orderBy: { order: "asc" } } },
+    });
+  } else {
+    pipeline = await prisma.pipeline.findFirst({
+      where: { tenantId, isDefault: true },
+      include: { stages: { orderBy: { order: "asc" } } },
+    });
+  }
+  if (!pipeline) return { pipeline: null, stages: [] };
+
+  const stageIds = pipeline.stages.map((s) => s.id);
+  const grouped = await prisma.lead.groupBy({
+    by: ["stageId"],
+    where: { tenantId, pipelineId: pipeline.id, stageId: { in: stageIds } },
+    _count: true,
+  });
+  const countByStage = new Map(grouped.map((g) => [g.stageId, g._count]));
+  return {
+    pipeline: { id: pipeline.id, name: pipeline.name },
+    stages: pipeline.stages.map((s) => ({
+      id: s.id,
+      name: s.name,
+      order: s.order,
+      category: s.category,
+      color: s.color,
+      count: countByStage.get(s.id) ?? 0,
+    })),
+  };
+}
+
+// Bulk-campaign rollup — top-N by recency with the denormalized counters
+// already maintained on the row. Handy "what's running" widget.
+export async function getBulkRollup(tenantId) {
+  const items = await prisma.bulkCampaign.findMany({
+    where: { tenantId },
+    orderBy: { createdAt: "desc" },
+    take: 20,
+    select: {
+      id: true,
+      name: true,
+      status: true,
+      sentCount: true,
+      deliveredCount: true,
+      readCount: true,
+      failedCount: true,
+      repliedCount: true,
+      createdAt: true,
+      scheduledAt: true,
+      _count: { select: { recipients: true } },
+    },
+  });
+  return items.map((b) => ({
+    id: b.id,
+    name: b.name,
+    status: b.status,
+    scheduledAt: b.scheduledAt,
+    createdAt: b.createdAt,
+    total: b._count.recipients,
+    sent: b.sentCount,
+    delivered: b.deliveredCount,
+    read: b.readCount,
+    failed: b.failedCount,
+    replied: b.repliedCount,
+    replyRate: b.sentCount > 0 ? Number((b.repliedCount / b.sentCount).toFixed(3)) : 0,
+  }));
+}
+
+// Follow-up engine performance. Rule-level fires + replies-after-fire
+// (proxy = next inbound message within 7 days on that contact's chat).
+export async function getFollowupPerformance(tenantId, period) {
+  const since = periodSince(period);
+  const rules = await prisma.followupRule.findMany({
+    where: { tenantId },
+    select: { id: true, name: true, isActive: true, hoursSinceLastInbound: true },
+  });
+  const out = [];
+  for (const rule of rules) {
+    const where = {
+      ruleId: rule.id,
+      ...(since ? { sentAt: { gte: since } } : {}),
+    };
+    const fired = await prisma.followupLog.count({ where });
+    out.push({
+      id: rule.id,
+      name: rule.name,
+      isActive: rule.isActive,
+      hoursSinceLastInbound: rule.hoursSinceLastInbound,
+      fired,
+    });
+  }
+  return out.sort((a, b) => b.fired - a.fired);
+}
+
+// Automation engine performance — per-automation run counts grouped by
+// status. Lets operators spot failing automations quickly.
+export async function getAutomationPerformance(tenantId) {
+  const automations = await prisma.automation.findMany({
+    where: { tenantId },
+    select: { id: true, name: true, trigger: true, isActive: true },
+  });
+  const out = [];
+  for (const a of automations) {
+    const grouped = await prisma.automationRun.groupBy({
+      by: ["status"],
+      where: { automationId: a.id },
+      _count: true,
+    });
+    const counts = Object.fromEntries(grouped.map((g) => [g.status, g._count]));
+    out.push({
+      id: a.id,
+      name: a.name,
+      trigger: a.trigger,
+      isActive: a.isActive,
+      pending: counts.PENDING ?? 0,
+      running: counts.RUNNING ?? 0,
+      waiting: counts.WAITING ?? 0,
+      done: counts.DONE ?? 0,
+      failed: counts.FAILED ?? 0,
+      cancelled: counts.CANCELLED ?? 0,
+    });
+  }
+  return out.sort((a, b) => (b.done + b.failed) - (a.done + a.failed));
 }

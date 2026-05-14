@@ -4,7 +4,16 @@ import Login from "./pages/Login.jsx";
 import Dashboard from "./pages/Dashboard.jsx";
 import Whatsapp from "./pages/Whatsapp.jsx";
 import Campaigns from "./pages/Campaigns.jsx";
+import Automations from "./pages/Automations.jsx";
+import BulkCampaigns from "./pages/BulkCampaigns.jsx";
+import Channels from "./pages/Channels.jsx";
+import Contacts from "./pages/Contacts.jsx";
+import Followups from "./pages/Followups.jsx";
+import Integrations from "./pages/Integrations.jsx";
+import Sources from "./pages/Sources.jsx";
 import Kb from "./pages/Kb.jsx";
+import LeadDetail from "./pages/LeadDetail.jsx";
+import Pipeline from "./pages/Pipeline.jsx";
 import ManualQueue from "./pages/ManualQueue.jsx";
 import Chat from "./pages/Chat.jsx";
 import Inbox from "./pages/Inbox.jsx";
@@ -42,7 +51,37 @@ export default function App() {
       >
         <Route path="/" element={<Dashboard />} />
         <Route path="/whatsapp" element={<Whatsapp />} />
+        <Route path="/contacts" element={<Contacts />} />
+        <Route path="/sources" element={<Sources />} />
+        <Route path="/pipeline" element={<Pipeline />} />
+        <Route path="/leads/:leadId" element={<LeadDetail />} />
         <Route path="/campaigns" element={<Campaigns />} />
+        <Route path="/bulk" element={<BulkCampaigns />} />
+        <Route path="/followups" element={<Followups />} />
+        <Route
+          path="/automations"
+          element={
+            <ProtectedRoute roles={["SUPER_ADMIN", "ADMIN"]}>
+              <Automations />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/channels"
+          element={
+            <ProtectedRoute roles={["SUPER_ADMIN", "ADMIN"]}>
+              <Channels />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/integrations"
+          element={
+            <ProtectedRoute roles={["SUPER_ADMIN", "ADMIN"]}>
+              <Integrations />
+            </ProtectedRoute>
+          }
+        />
         <Route path="/kb" element={<Kb />} />
         <Route path="/queue" element={<ManualQueue />} />
         <Route path="/inbox" element={<Inbox />} />

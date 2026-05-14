@@ -14,6 +14,7 @@ import { Input, Textarea } from "../components/ui/Input.jsx";
 import { Button } from "../components/ui/Button.jsx";
 import { Badge } from "../components/ui/Badge.jsx";
 import { SkeletonTable } from "../components/ui/Skeleton.jsx";
+import { DateTimeInput } from "../components/ui/DateTimeInput.jsx";
 import { cn } from "../lib/cn.js";
 
 const empty = {
@@ -327,8 +328,7 @@ export default function Campaigns() {
 
                     <div className="grid grid-cols-2 gap-3">
                       <Field label="Expires (optional)">
-                        <Input
-                          type="datetime-local"
+                        <DateTimeInput
                           value={form.expiresAt}
                           onChange={(e) => setForm({ ...form, expiresAt: e.target.value })}
                         />

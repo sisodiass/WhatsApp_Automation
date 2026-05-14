@@ -44,11 +44,51 @@ async function getRuntimeSettings(tenantId) {
 // ─── Chat upsert + processing lock ────────────────────────────────────
 
 async function upsertChat(tenantId, phone, displayName) {
-  return prisma.chat.upsert({
+  const chat = await prisma.chat.upsert({
     where: { tenantId_phone: { tenantId, phone } },
     update: displayName ? { displayName } : {},
     create: { tenantId, phone, displayName },
   });
+  // M1: link the chat to a CRM Contact identity (idempotent — phone is
+  // the canonical key). Done in a separate step so a contact upsert
+  // failure can't poison the message ingress path; we log and continue.
+  if (!chat.contactId) {
+    try {
+      const contact = await prisma.contact.upsert({
+        where: { tenantId_mobile: { tenantId, mobile: phone } },
+        update: {},
+        create: {
+          tenantId,
+          mobile: phone,
+          ...(displayName ? splitDisplayName(displayName) : {}),
+          source: "whatsapp_inbound",
+        },
+        select: { id: true },
+      });
+      await prisma.chat.update({
+        where: { id: chat.id },
+        data: { contactId: contact.id },
+      });
+      chat.contactId = contact.id;
+      // Auto-create a Lead for first-contact inbound. Idempotent —
+      // ensureLeadForContact short-circuits if a lead exists.
+      const { ensureLeadForContact } = await import("../leads/lead.service.js");
+      await ensureLeadForContact(tenantId, contact.id, "whatsapp").catch((err) =>
+        log.warn("ensureLeadForContact failed (continuing)", { phone, err: err.message }),
+      );
+    } catch (err) {
+      log.warn("contact upsert failed (continuing)", { phone, err: err.message });
+    }
+  }
+  return chat;
+}
+
+// Best-effort split of WhatsApp notifyName into first/last.
+function splitDisplayName(name) {
+  const parts = String(name).trim().split(/\s+/);
+  if (parts.length === 0 || !parts[0]) return {};
+  if (parts.length === 1) return { firstName: parts[0] };
+  return { firstName: parts[0], lastName: parts.slice(1).join(" ") };
 }
 
 // Acquires a per-chat lock by atomically updating processing_lock_until.
@@ -198,6 +238,19 @@ export async function handleInbound(ctx) {
 
   const chat = await upsertChat(tenantId, phone, displayName);
 
+  // M4: link this inbound to any recent bulk-campaign send to the same
+  // contact. Best-effort: if the contact has a SENT/DELIVERED recipient
+  // row within the reply window (7d), mark the most-recent one REPLIED
+  // and bump the campaign's repliedCount. Fail-soft so a bulk reply
+  // linking error never blocks message ingress.
+  if (chat.contactId) {
+    try {
+      await linkInboundToBulkRecipient(chat.contactId);
+    } catch (err) {
+      log.warn("bulk-reply linking failed", { phone, err: err.message });
+    }
+  }
+
   const got = await acquireLock(chat.id);
   if (!got) {
     log.warn("chat busy, dropping", { chatId: chat.id, phone });
@@ -325,6 +378,9 @@ export async function markOutboundSent({ messageId, waMessageId, ok, error }) {
   if (!messageId) return;
   if (!ok) {
     log.warn("outbound failed", { messageId, error });
+    // For bulk campaigns the failure path needs to land too — flip the
+    // recipient to FAILED so analytics + retries are accurate.
+    await markBulkRecipientFailed(messageId, error);
     return;
   }
 
@@ -350,6 +406,13 @@ export async function markOutboundSent({ messageId, waMessageId, ok, error }) {
   if (msg.sentAt) return; // dedup — already acked
 
   const now = new Date();
+
+  // M4: bulk-campaign recipients ride the same ack rail. Flip the
+  // recipient row + bump the campaign's denormalized sent counter when
+  // the send is confirmed. AI-cap logic below stays untouched.
+  if (msg.source === "CAMPAIGN") {
+    await markBulkRecipientSent(messageId, now);
+  }
 
   // What counts toward the 10-cap?
   //   - source=AI         → real AI reply
@@ -406,6 +469,76 @@ export async function markOutboundSent({ messageId, waMessageId, ok, error }) {
     createdAt: msg.createdAt,
     sentAt: now,
   });
+}
+
+// ─── M4: bulk-campaign recipient state propagation ────────────────
+// Called from markOutboundSent when the acked message has source=CAMPAIGN.
+// Kept here (rather than in bulk-campaigns module) so the existing ack
+// path doesn't grow new module dependencies; bulk-campaigns owns the
+// state model but its rows are reachable directly via messageId.
+
+async function markBulkRecipientSent(messageId, when) {
+  const recipient = await prisma.bulkCampaignRecipient.findFirst({
+    where: { messageId, status: { in: ["QUEUED", "PENDING"] } },
+  });
+  if (!recipient) return;
+  await prisma.$transaction([
+    prisma.bulkCampaignRecipient.update({
+      where: { id: recipient.id },
+      data: { status: "SENT", sentAt: when },
+    }),
+    prisma.bulkCampaign.update({
+      where: { id: recipient.bulkCampaignId },
+      data: { sentCount: { increment: 1 } },
+    }),
+  ]);
+}
+
+// Reply window for linking inbound messages to bulk recipients. Mirrors
+// the project's 7-day session-reset window so a "fresh conversation"
+// after this point isn't credited to a stale bulk.
+const BULK_REPLY_WINDOW_MS = 7 * DAY;
+
+async function linkInboundToBulkRecipient(contactId) {
+  const since = new Date(Date.now() - BULK_REPLY_WINDOW_MS);
+  // Most-recent non-replied recipient — only flip the first match so a
+  // single inbound doesn't carom across stacked bulks.
+  const recipient = await prisma.bulkCampaignRecipient.findFirst({
+    where: {
+      contactId,
+      status: { in: ["SENT", "DELIVERED", "READ"] },
+      sentAt: { gte: since },
+    },
+    orderBy: { sentAt: "desc" },
+  });
+  if (!recipient) return;
+  await prisma.$transaction([
+    prisma.bulkCampaignRecipient.update({
+      where: { id: recipient.id },
+      data: { status: "REPLIED", repliedAt: new Date() },
+    }),
+    prisma.bulkCampaign.update({
+      where: { id: recipient.bulkCampaignId },
+      data: { repliedCount: { increment: 1 } },
+    }),
+  ]);
+}
+
+async function markBulkRecipientFailed(messageId, error) {
+  const recipient = await prisma.bulkCampaignRecipient.findFirst({
+    where: { messageId, status: { in: ["QUEUED", "PENDING"] } },
+  });
+  if (!recipient) return;
+  await prisma.$transaction([
+    prisma.bulkCampaignRecipient.update({
+      where: { id: recipient.id },
+      data: { status: "FAILED", failedAt: new Date(), error: error?.slice(0, 500) ?? "send failed" },
+    }),
+    prisma.bulkCampaign.update({
+      where: { id: recipient.bulkCampaignId },
+      data: { failedCount: { increment: 1 } },
+    }),
+  ]);
 }
 
 // ─── Read helpers (used by routes / dev tools) ────────────────────

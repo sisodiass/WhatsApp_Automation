@@ -13,12 +13,12 @@ export const listChats = asyncHandler(async (req, res) => {
   // against the SAME session (otherwise Prisma allows different sessions to
   // satisfy each individual filter — wrong semantics).
   //
-  // Inbox is hard-filtered to chats that have at least one campaign-initiated
-  // session. Customers who messaged without a valid campaign tag never had a
-  // session created for them, so they're naturally excluded — but if any
-  // chat row exists with non-campaign sessions (legacy / edge cases), this
-  // filter keeps them out of the inbox view.
-  const sessionsSome = { campaignId: { not: null } };
+  // Originally we hard-filtered to campaign-initiated sessions. M9 added
+  // web-chat sessions which have no campaignId by design — so we now show
+  // a chat when EITHER (a) it has a campaign session, OR (b) it's on a
+  // non-WhatsApp channel (web-chat / Instagram / FB). Explicit campaignId
+  // filter still applies if the operator selected one.
+  const sessionsSome = {};
   if (state) {
     sessionsSome.state = state;
     sessionsSome.endedAt = null;
@@ -31,7 +31,13 @@ export const listChats = asyncHandler(async (req, res) => {
 
   const where = {
     tenantId,
-    sessions: { some: sessionsSome },
+    OR: campaignId
+      ? [{ sessions: { some: sessionsSome } }]
+      : [
+          { sessions: { some: { ...sessionsSome, campaignId: { not: null } } } },
+          // Non-WhatsApp chats are first-class even without a campaign tag.
+          { channel: { type: { not: "WHATSAPP" } }, sessions: { some: sessionsSome } },
+        ],
   };
   if (q && q.trim()) {
     where.OR = [
@@ -60,6 +66,8 @@ export const listChats = asyncHandler(async (req, res) => {
           campaign: { select: { id: true, name: true, tag: true } },
         },
       },
+      // M9: surface the originating channel for the Inbox badge.
+      channel: { select: { id: true, type: true, name: true } },
       tags: { include: { tag: true } },
       _count: {
         select: {

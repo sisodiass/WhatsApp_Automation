@@ -1,13 +1,14 @@
-import { useEffect, useState } from "react";
-import { FileText, Plus } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Eye, FileText, Plus } from "lucide-react";
 import { api } from "../lib/api.js";
 import { confirm } from "../stores/confirmStore.js";
 import { PageHeader } from "../components/ui/PageHeader.jsx";
 import { Card } from "../components/ui/Card.jsx";
-import { Input, Select, Textarea } from "../components/ui/Input.jsx";
+import { Input, Select } from "../components/ui/Input.jsx";
 import { Button } from "../components/ui/Button.jsx";
 import { Badge } from "../components/ui/Badge.jsx";
 import { Skeleton } from "../components/ui/Skeleton.jsx";
+import VariableTextarea from "../components/VariableTextarea.jsx";
 
 const TYPES = [
   { value: "ONBOARDING_DEFAULT", label: "Onboarding (default)", help: "Sent when a new session starts and the campaign has no custom onboarding." },
@@ -32,6 +33,8 @@ export default function Templates() {
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [preview, setPreview] = useState("");
+  const previewTimer = useRef(null);
 
   async function load() {
     setLoading(true);
@@ -45,7 +48,26 @@ export default function Templates() {
 
   useEffect(() => { load(); }, []);
 
-  function openNew() { setEditing({}); setForm(empty); setError(null); }
+  // Live preview — debounce + send the current content to the backend
+  // renderer so the operator sees exactly what customers will see.
+  useEffect(() => {
+    if (!editing || !form.content) {
+      setPreview("");
+      return;
+    }
+    clearTimeout(previewTimer.current);
+    previewTimer.current = setTimeout(async () => {
+      try {
+        const { data } = await api.post("/templates/preview", { content: form.content });
+        setPreview(data.rendered || "");
+      } catch {
+        setPreview("");
+      }
+    }, 250);
+    return () => clearTimeout(previewTimer.current);
+  }, [editing, form.content]);
+
+  function openNew() { setEditing({}); setForm(empty); setError(null); setPreview(""); }
   function openEdit(t) {
     setEditing(t);
     setForm({
@@ -164,7 +186,7 @@ export default function Templates() {
 
         {editing && (
           <div className="fixed inset-0 z-10 flex items-center justify-center bg-foreground/30 p-4 animate-fade-in">
-            <form onSubmit={save} className="w-full max-w-lg animate-slide-up">
+            <form onSubmit={save} className="w-full max-w-2xl animate-slide-up">
               <Card>
                 <div className="p-6">
                   <h2 className="text-lg font-semibold tracking-tight">
@@ -195,14 +217,22 @@ export default function Templates() {
                       </span>
                     </Field>
 
-                    <Field label="Content (use {{var}} for substitutions)">
-                      <Textarea
-                        required
-                        rows={4}
+                    <Field label="Content (use {{var}} or {{var|format}})">
+                      <VariableTextarea
+                        rows={5}
                         value={form.content}
-                        onChange={(e) => setForm({ ...form, content: e.target.value })}
+                        onChange={(content) => setForm({ ...form, content })}
                       />
                     </Field>
+
+                    {preview && (
+                      <div className="rounded-md border bg-muted/40 p-3">
+                        <div className="mb-1 flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-muted-foreground">
+                          <Eye className="h-3 w-3" /> Live preview (sample data)
+                        </div>
+                        <div className="whitespace-pre-wrap text-sm">{preview}</div>
+                      </div>
+                    )}
 
                     <Field label="Variables (comma-separated)">
                       <Input

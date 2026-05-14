@@ -4,6 +4,7 @@ import { api } from "../lib/api.js";
 import { Card } from "./ui/Card.jsx";
 import { Input } from "./ui/Input.jsx";
 import { Button } from "./ui/Button.jsx";
+import { DateTimeInput } from "./ui/DateTimeInput.jsx";
 
 function defaultStartIso() {
   // 1 hour from now, rounded to next 15 minutes.
@@ -80,8 +81,7 @@ export default function DemoBookingModal({ chatId, onClose, onBooked }) {
 
             <div className="mt-4 space-y-3">
               <Field label="When">
-                <Input
-                  type="datetime-local"
+                <DateTimeInput
                   value={scheduledAt}
                   onChange={(e) => setScheduledAt(e.target.value)}
                   required

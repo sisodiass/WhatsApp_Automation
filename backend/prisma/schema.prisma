@@ -47,6 +47,9 @@ enum MessageSource {
   AI
   AGENT
   SYSTEM
+  // Outbound from a bulk-broadcast campaign (M5+). Distinct from AGENT so
+  // analytics don't conflate human replies with broadcasts.
+  CAMPAIGN
 }
 
 enum DocumentStatus {
@@ -79,6 +82,90 @@ enum TemplateType {
   DEMO_CONFIRMATION
 }
 
+// ─── CRM enums (M1) ──────────────────────────────────────────────────
+
+enum StageCategory {
+  OPEN
+  WON
+  LOST
+}
+
+enum LeadScore {
+  HOT
+  WARM
+  COLD
+  UNQUALIFIED
+}
+
+enum TaskStatus {
+  OPEN
+  DONE
+  CANCELLED
+}
+
+enum ActivityKind {
+  MESSAGE
+  NOTE
+  TASK
+  STAGE_CHANGE
+  ASSIGNMENT
+  TAG_CHANGE
+  AUTOMATION
+  CALL
+}
+
+// ─── Bulk campaign enums (M4) ────────────────────────────────────────
+
+enum BulkCampaignStatus {
+  DRAFT
+  PENDING_APPROVAL
+  SCHEDULED
+  RUNNING
+  PAUSED
+  COMPLETED
+  CANCELLED
+}
+
+enum BulkRecipientStatus {
+  PENDING
+  QUEUED
+  SENT
+  DELIVERED
+  READ
+  FAILED
+  REPLIED
+}
+
+// ─── Automation enums (M6) ──────────────────────────────────────────
+
+enum AutomationTrigger {
+  NEW_LEAD
+  STAGE_CHANGED
+  LEAD_ASSIGNED
+  NO_REPLY
+  TAG_ADDED
+  CAMPAIGN_REPLIED
+  INBOUND_KEYWORD
+}
+
+enum AutomationRunStatus {
+  PENDING
+  RUNNING
+  WAITING
+  DONE
+  FAILED
+  CANCELLED
+}
+
+// ─── Channels (M9 / M10) ─────────────────────────────────────────────
+
+enum ChannelType {
+  WHATSAPP
+  INSTAGRAM
+  FB_MESSENGER
+  WEB_CHAT
+}
+
 // ─── Tenant + Users ──────────────────────────────────────────────────
 
 model Tenant {
@@ -96,6 +183,16 @@ model Tenant {
   settings         Setting[]
   settingsAudit    SettingAuditLog[]
   messageTemplates MessageTemplate[]
+  contacts         Contact[]
+  pipelines        Pipeline[]
+  leads            Lead[]
+  tasks            Task[]
+  bulkCampaigns    BulkCampaign[]
+  followupRules    FollowupRule[]
+  automations      Automation[]
+  notifications    Notification[]
+  channels         Channel[]
+  integrations     WebsiteIntegration[]
 
   @@map("tenants")
 }
@@ -112,11 +209,21 @@ model User {
   createdAt    DateTime  @default(now()) @map("created_at")
   updatedAt    DateTime  @updatedAt @map("updated_at")
 
-  tenant        Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  notes         Note[]
-  settingsAudit SettingAuditLog[]
-  manualClaimed ManualQueueItem[] @relation("ManualClaimedBy")
-  uploads       KbDocument[]      @relation("KbUploadedBy")
+  tenant         Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  notes          Note[]
+  settingsAudit  SettingAuditLog[]
+  manualClaimed  ManualQueueItem[] @relation("ManualClaimedBy")
+  uploads        KbDocument[]      @relation("KbUploadedBy")
+  ownedContacts  Contact[]         @relation("ContactOwner")
+  assignedLeads  Lead[]            @relation("LeadAssignee")
+  assignedTasks  Task[]            @relation("TaskAssignee")
+  createdTasks   Task[]            @relation("TaskCreator")
+  leadActivities LeadActivity[]
+  bulkCampaigns  BulkCampaign[]    @relation("BulkCampaignCreator")
+  approvedBulks  BulkCampaign[]    @relation("BulkCampaignApprover")
+  followupRules  FollowupRule[]    @relation("FollowupRuleCreator")
+  automations    Automation[]      @relation("AutomationCreator")
+  notifications  Notification[]
 
   @@index([tenantId])
   @@map("users")
@@ -150,6 +257,7 @@ model Campaign {
   tenant       Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   kbGroups     CampaignKbGroup[]
   chatSessions ChatSession[]
+  leads        Lead[]
 
   @@index([tenantId])
   @@index([isActive])
@@ -211,23 +319,23 @@ model KbDocument {
 }
 
 model KbChunk {
-  id         String                       @id @default(cuid())
-  documentId String                       @map("document_id")
-  chunkIndex Int                          @map("chunk_index")
-  text       String
+  id                String                       @id @default(cuid())
+  documentId        String                       @map("document_id")
+  chunkIndex        Int                          @map("chunk_index")
+  text              String
   // pgvector column. All providers must produce 1536-dim vectors (OpenAI
   // text-embedding-3-small natively; Gemini embedding-001 with
   // outputDimensionality=1536). Switching providers requires re-embedding,
   // tracked via `embedding_provider` below.
-  embedding  Unsupported("vector(1536)")?
+  embedding         Unsupported("vector(1536)")?
   // Which provider + exact model produced this vector. Retrieval filters
   // on (provider, model) so a mid-flight provider OR model upgrade
   // doesn't compare across embedding spaces.
-  embeddingProvider String?               @map("embedding_provider")
-  embeddingModel    String?               @map("embedding_model")
+  embeddingProvider String?                      @map("embedding_provider")
+  embeddingModel    String?                      @map("embedding_model")
   // tsvector generated column + GIN index added in db-init.js as raw SQL
   // (Postgres-specific; not expressible in Prisma DSL).
-  createdAt  DateTime                     @default(now()) @map("created_at")
+  createdAt         DateTime                     @default(now()) @map("created_at")
 
   document KbDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
 
@@ -246,10 +354,21 @@ model Chat {
   currentSessionId    String?   @map("current_session_id")
   processingLockUntil DateTime? @map("processing_lock_until")
   lastMessageAt       DateTime? @map("last_message_at")
+  // Soft FK to the CRM Contact identity. Nullable because inbound messages
+  // can arrive before a Contact row exists (the inbound worker upserts and
+  // backfills this on first message). Source of truth for phone stays on
+  // chats.phone — see backfill script.
+  contactId           String?   @map("contact_id")
+  // M9: which channel did this chat originate on? Backfilled to the
+  // tenant's WHATSAPP channel on migration; web-chat sessions get the
+  // WEB_CHAT channel. Nullable so old rows don't fail the migration.
+  channelId           String?   @map("channel_id")
   createdAt           DateTime  @default(now()) @map("created_at")
   updatedAt           DateTime  @updatedAt @map("updated_at")
 
   tenant           Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  contact          Contact?          @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  channel          Channel?          @relation(fields: [channelId], references: [id], onDelete: SetNull)
   sessions         ChatSession[]
   notes            Note[]
   tags             ChatTag[]
@@ -258,6 +377,8 @@ model Chat {
 
   @@unique([tenantId, phone])
   @@index([lastMessageAt])
+  @@index([contactId])
+  @@index([channelId])
   @@map("chats")
 }
 
@@ -312,7 +433,10 @@ model Message {
   sentAt      DateTime?        @map("sent_at")
   createdAt   DateTime         @default(now()) @map("created_at")
 
-  session ChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  session            ChatSession             @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  leadActivities     LeadActivity[]
+  bulkRecipients     BulkCampaignRecipient[]
+  followupLogs       FollowupLog[]
 
   @@index([sessionId, createdAt])
   @@map("messages")
@@ -352,8 +476,9 @@ model Note {
   body      String
   createdAt DateTime @default(now()) @map("created_at")
 
-  chat   Chat  @relation(fields: [chatId], references: [id], onDelete: Cascade)
-  author User? @relation(fields: [authorId], references: [id], onDelete: SetNull)
+  chat           Chat           @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  author         User?          @relation(fields: [authorId], references: [id], onDelete: SetNull)
+  leadActivities LeadActivity[]
 
   @@index([chatId])
   @@map("notes")
@@ -451,4 +576,536 @@ model DemoBooking {
 
   @@index([chatId])
   @@map("demo_bookings")
+}
+
+// ─── CRM: Contacts, Pipelines, Leads, Tasks (M1) ─────────────────────
+// Contact = person identity (CRM record). Chat is per-phone conversation
+// state; a Contact may exist without ever messaging. chats.contactId is
+// nullable and backfilled by the inbound worker on first message.
+
+model Contact {
+  id           String    @id @default(cuid())
+  tenantId     String    @map("tenant_id")
+  firstName    String?   @map("first_name")
+  lastName     String?   @map("last_name")
+  // E.164 (e.g. "919999999999"), matches chats.phone.
+  mobile       String
+  email        String?
+  company      String?
+  city         String?
+  state        String?
+  country      String?
+  source       String?
+  ownerId      String?   @map("owner_id")
+  // Free-form per-tenant extensions. Schemaless on purpose — every CRM
+  // grows custom fields and modeling each one as a column doesn't scale.
+  customFields Json?     @map("custom_fields")
+  // Soft delete: Lead history references the contact, so we keep the row
+  // but mark it deleted. Active queries filter `deletedAt IS NULL`.
+  deletedAt    DateTime? @map("deleted_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  tenant         Tenant                  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  owner          User?                   @relation("ContactOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  chats          Chat[]
+  leads          Lead[]
+  bulkRecipients BulkCampaignRecipient[]
+
+  // Mobile is the canonical identity per tenant. Email is optional, indexed
+  // but not unique (one household may share an email across two contacts).
+  @@unique([tenantId, mobile])
+  @@index([tenantId, email])
+  @@index([tenantId, ownerId])
+  @@index([tenantId, source])
+  @@index([tenantId, createdAt])
+  @@index([tenantId, deletedAt])
+  @@map("contacts")
+}
+
+model Pipeline {
+  id        String   @id @default(cuid())
+  tenantId  String   @map("tenant_id")
+  name      String
+  // Per-tenant default. Enforced via a partial unique index added in
+  // db-init.js: UNIQUE (tenant_id) WHERE is_default. New leads land in
+  // the default pipeline unless an explicit pipelineId is provided.
+  isDefault Boolean  @default(false) @map("is_default")
+  // Seeded pipelines (e.g. "Sales") cannot be deleted; mirrors the
+  // Campaign.isSystem semantics.
+  isSystem  Boolean  @default(false) @map("is_system")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  tenant Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  stages Stage[]
+  leads  Lead[]
+
+  @@index([tenantId])
+  @@map("pipelines")
+}
+
+model Stage {
+  id         String        @id @default(cuid())
+  pipelineId String        @map("pipeline_id")
+  name       String
+  // Integer with gaps of 10 (e.g. 10, 20, 30) so drag-drop reorder is a
+  // single UPDATE instead of N. Not unique — duplicates during reorder
+  // are tolerated and resolved on next save.
+  order      Int
+  // Drives KPIs without parsing stage names. OPEN = in pipeline, WON =
+  // converted, LOST = dropped.
+  category   StageCategory @default(OPEN)
+  color      String?
+  createdAt  DateTime      @default(now()) @map("created_at")
+  updatedAt  DateTime      @updatedAt @map("updated_at")
+
+  pipeline       Pipeline       @relation(fields: [pipelineId], references: [id], onDelete: Cascade)
+  leads          Lead[]
+  activitiesFrom LeadActivity[] @relation("StageFrom")
+  activitiesTo   LeadActivity[] @relation("StageTo")
+
+  @@index([pipelineId, order])
+  @@map("stages")
+}
+
+model Lead {
+  id            String     @id @default(cuid())
+  tenantId      String     @map("tenant_id")
+  contactId     String     @map("contact_id")
+  pipelineId    String     @map("pipeline_id")
+  stageId       String     @map("stage_id")
+  source        String?
+  // Optional link to the existing INBOUND tag-routed campaign (NOT the
+  // M5 bulk outbound campaign — that lives in its own table).
+  campaignId    String?    @map("campaign_id")
+  assignedToId  String?    @map("assigned_to_id")
+  // Agent-facing bucket. The numeric aiScore (0–1) is the M8 AI output
+  // that feeds this bucket via a threshold mapping.
+  score         LeadScore?
+  aiScore       Float?     @map("ai_score")
+  expectedValue Decimal?   @map("expected_value") @db.Decimal(12, 2)
+  currency      String?    @db.VarChar(3)
+  lostReason    String?    @map("lost_reason")
+  wonAt         DateTime?  @map("won_at")
+  // M9: marketing-attribution snapshot captured at lead creation (e.g.
+  // by the web-chat widget reading window.location.search). Nullable —
+  // most leads come in without these. analytics.getSourceBreakdown reads
+  // lead.source for cohort grouping; UTMs add finer granularity.
+  utmSource     String?    @map("utm_source")
+  utmMedium     String?    @map("utm_medium")
+  utmCampaign   String?    @map("utm_campaign")
+  adId          String?    @map("ad_id")
+  landingPage   String?    @map("landing_page")
+  referrer      String?
+  lostAt        DateTime?  @map("lost_at")
+  createdAt     DateTime   @default(now()) @map("created_at")
+  updatedAt     DateTime   @updatedAt @map("updated_at")
+
+  tenant     Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  contact    Contact        @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  pipeline   Pipeline       @relation(fields: [pipelineId], references: [id], onDelete: Cascade)
+  // Inbound campaign that originated this lead (WhatsApp tag-routed).
+  // SetNull on cascade so deleting a campaign doesn't orphan the lead.
+  campaign       Campaign?      @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  stage          Stage          @relation(fields: [stageId], references: [id])
+  assignedTo     User?          @relation("LeadAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
+  tasks          Task[]
+  activities     LeadActivity[]
+  followupLogs   FollowupLog[]
+  automationRuns AutomationRun[]
+  memory         LeadMemory?
+
+  @@index([tenantId, pipelineId, stageId])
+  @@index([tenantId, assignedToId, stageId])
+  @@index([tenantId, score])
+  @@index([contactId])
+  @@index([campaignId])
+  @@index([tenantId, createdAt])
+  @@map("leads")
+}
+
+// Per-lead timeline. Each row is one event (message, note, stage change,
+// etc.) with all entity FKs nullable. Querying by `kind` is the hot path;
+// joins through the populated FK return the entity detail without a
+// polymorphic lookup.
+model LeadActivity {
+  id          String       @id @default(cuid())
+  leadId      String       @map("lead_id")
+  kind        ActivityKind
+  messageId   String?      @map("message_id")
+  taskId      String?      @map("task_id")
+  noteId      String?      @map("note_id")
+  stageFromId String?      @map("stage_from_id")
+  stageToId   String?      @map("stage_to_id")
+  actorId     String?      @map("actor_id")
+  // Free-form payload for kinds that don't slot into the FKs above
+  // (e.g. AUTOMATION carries the automation run id + step index).
+  data        Json?
+  createdAt   DateTime     @default(now()) @map("created_at")
+
+  lead      Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  message   Message? @relation(fields: [messageId], references: [id], onDelete: SetNull)
+  task      Task?    @relation(fields: [taskId], references: [id], onDelete: SetNull)
+  note      Note?    @relation(fields: [noteId], references: [id], onDelete: SetNull)
+  stageFrom Stage?   @relation("StageFrom", fields: [stageFromId], references: [id], onDelete: SetNull)
+  stageTo   Stage?   @relation("StageTo", fields: [stageToId], references: [id], onDelete: SetNull)
+  actor     User?    @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([leadId, createdAt(sort: Desc)])
+  @@index([kind])
+  @@map("lead_activities")
+}
+
+model Task {
+  id           String     @id @default(cuid())
+  tenantId     String     @map("tenant_id")
+  leadId       String?    @map("lead_id")
+  title        String
+  description  String?
+  dueAt        DateTime?  @map("due_at")
+  status       TaskStatus @default(OPEN)
+  doneAt       DateTime?  @map("done_at")
+  assignedToId String?    @map("assigned_to_id")
+  createdById  String?    @map("created_by_id")
+  createdAt    DateTime   @default(now()) @map("created_at")
+  updatedAt    DateTime   @updatedAt @map("updated_at")
+
+  tenant         Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  lead           Lead?          @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  assignedTo     User?          @relation("TaskAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
+  createdBy      User?          @relation("TaskCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  leadActivities LeadActivity[]
+
+  @@index([tenantId, assignedToId, status, dueAt])
+  @@index([leadId])
+  @@map("tasks")
+}
+
+// ─── Bulk Campaigns (M4) ─────────────────────────────────────────────
+// Outbound broadcast model. Distinct from `Campaign` (which is INBOUND
+// tag-routed). Recipients are materialized rows; the drip scheduler reads
+// PENDING rows in batches respecting delay/jitter/daily caps and warmup.
+//
+// Approval flow: DRAFT → PENDING_APPROVAL → SCHEDULED → RUNNING →
+// COMPLETED/CANCELLED. Operators can PAUSE a RUNNING bulk to halt the
+// drip without losing already-sent recipients.
+
+model BulkCampaign {
+  id                String             @id @default(cuid())
+  tenantId          String             @map("tenant_id")
+  name              String
+  messageBody       String             @map("message_body")
+  mediaUrl          String?            @map("media_url")
+  mediaType         String?            @map("media_type")
+  status            BulkCampaignStatus @default(DRAFT)
+  scheduledAt       DateTime?          @map("scheduled_at")
+  // Safety: hard caps the producer enforces in addition to any global
+  // warmup gate. dailyLimit applies per-tenant across this bulk's recipients;
+  // delayMin/delayMax are seconds between drips (jittered uniformly).
+  dailyLimit        Int                @default(500) @map("daily_limit")
+  delayMin          Int                @default(30) @map("delay_min")
+  delayMax          Int                @default(60) @map("delay_max")
+  // ISO-8601 local times (e.g. "22:00" / "08:00"). Recipients whose tick
+  // would fall inside this window are deferred to the next allowed slot.
+  quietHoursStart   String?            @map("quiet_hours_start")
+  quietHoursEnd     String?            @map("quiet_hours_end")
+  // Skip recipients whose contact has an INBOUND message within this many
+  // hours of the planned send. 0 disables the skip.
+  skipRepliedHours  Int                @default(0) @map("skip_replied_hours")
+  // Seeded operator-only campaigns (mirrors Campaign.isSystem semantics).
+  isSystem          Boolean            @default(false) @map("is_system")
+  createdById       String?            @map("created_by_id")
+  approvedById      String?            @map("approved_by_id")
+  approvedAt        DateTime?          @map("approved_at")
+  startedAt         DateTime?          @map("started_at")
+  completedAt       DateTime?          @map("completed_at")
+  // Track recipient counts denormalized for fast list views. The drip
+  // worker updates these atomically when transitioning recipient status.
+  sentCount         Int                @default(0) @map("sent_count")
+  deliveredCount    Int                @default(0) @map("delivered_count")
+  readCount         Int                @default(0) @map("read_count")
+  failedCount       Int                @default(0) @map("failed_count")
+  repliedCount      Int                @default(0) @map("replied_count")
+  createdAt         DateTime           @default(now()) @map("created_at")
+  updatedAt         DateTime           @updatedAt @map("updated_at")
+
+  tenant     Tenant                  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  createdBy  User?                   @relation("BulkCampaignCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  approvedBy User?                   @relation("BulkCampaignApprover", fields: [approvedById], references: [id], onDelete: SetNull)
+  recipients BulkCampaignRecipient[]
+
+  @@index([tenantId, status])
+  @@index([tenantId, scheduledAt])
+  @@index([tenantId, createdAt])
+  @@map("bulk_campaigns")
+}
+
+model BulkCampaignRecipient {
+  id              String              @id @default(cuid())
+  bulkCampaignId  String              @map("bulk_campaign_id")
+  contactId       String              @map("contact_id")
+  // Link to the materialized message row once the drip enqueues it.
+  // Nullable while PENDING; set on transition to QUEUED.
+  messageId       String?             @map("message_id")
+  status          BulkRecipientStatus @default(PENDING)
+  error           String?
+  // Idempotent send: the drip worker writes plannedAt when picking the row
+  // so concurrent ticks don't double-enqueue. messageId+sentAt is the
+  // ultimate dedup via the shared outbound rail.
+  plannedAt       DateTime?           @map("planned_at")
+  queuedAt        DateTime?           @map("queued_at")
+  sentAt          DateTime?           @map("sent_at")
+  deliveredAt     DateTime?           @map("delivered_at")
+  readAt          DateTime?           @map("read_at")
+  repliedAt       DateTime?           @map("replied_at")
+  failedAt        DateTime?           @map("failed_at")
+  createdAt       DateTime            @default(now()) @map("created_at")
+
+  bulkCampaign BulkCampaign @relation(fields: [bulkCampaignId], references: [id], onDelete: Cascade)
+  contact      Contact      @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  message      Message?     @relation(fields: [messageId], references: [id], onDelete: SetNull)
+
+  @@unique([bulkCampaignId, contactId])
+  @@index([bulkCampaignId, status])
+  @@index([messageId])
+  @@index([status, plannedAt])
+  @@map("bulk_campaign_recipients")
+}
+
+// ─── Auto follow-up engine (M5) ──────────────────────────────────────
+// Operator-defined rules that fire when a lead has been idle in a given
+// stage for N hours. Rules are evaluated by the followup-tick scheduler
+// job. Each fire writes a FollowupLog so we can enforce maxReminders
+// without scanning LeadActivity (which would require a JSON predicate).
+
+model FollowupRule {
+  id                     String   @id @default(cuid())
+  tenantId               String   @map("tenant_id")
+  name                   String
+  isActive               Boolean  @default(true) @map("is_active")
+  // Optional pipeline + stage filter. Null = match any pipeline /
+  // any stage in the tenant. Both null = "all leads".
+  pipelineId             String?  @map("pipeline_id")
+  stageId                String?  @map("stage_id")
+  // Idle threshold — hours since the chat's lastMessageAt (any direction).
+  // Using lastMessageAt rather than last-inbound prevents stacking reminders
+  // within the threshold window.
+  hoursSinceLastInbound  Int      @map("hours_since_last_inbound")
+  // The MessageTemplate.name that produces the reminder body. We don't FK
+  // on name (templates can be renamed); resolve at fire time.
+  templateName           String   @map("template_name")
+  maxReminders           Int      @default(1) @map("max_reminders")
+  quietHoursStart        String?  @map("quiet_hours_start")
+  quietHoursEnd          String?  @map("quiet_hours_end")
+  createdById            String?  @map("created_by_id")
+  createdAt              DateTime @default(now()) @map("created_at")
+  updatedAt              DateTime @updatedAt @map("updated_at")
+
+  tenant    Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  createdBy User?         @relation("FollowupRuleCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  logs      FollowupLog[]
+
+  @@index([tenantId, isActive])
+  @@map("followup_rules")
+}
+
+model FollowupLog {
+  id        String   @id @default(cuid())
+  ruleId    String   @map("rule_id")
+  leadId    String   @map("lead_id")
+  messageId String?  @map("message_id")
+  error     String?
+  sentAt    DateTime @default(now()) @map("sent_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  rule    FollowupRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+  lead    Lead         @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  message Message?     @relation(fields: [messageId], references: [id], onDelete: SetNull)
+
+  @@index([ruleId, leadId])
+  @@index([leadId])
+  @@index([sentAt])
+  @@map("followup_logs")
+}
+
+// ─── Workflow Automation (M6) ────────────────────────────────────────
+// Operator-defined event-triggered workflows. Each Automation has one
+// trigger (event source), optional config filter, and a definition (JSON
+// step array). When the trigger fires, an AutomationRun row is created
+// and the automation-runs worker progresses one step per BullMQ job.
+//
+// Step types (v1):
+//   WAIT          — reschedule the next step after `minutes`
+//   SEND_MESSAGE  — render a named template + enqueue OUTGOING (SYSTEM)
+//   ASSIGN        — set lead.assignedToId
+//   ADD_TAG       — attach tag to the lead's contact's chats
+//   MOVE_STAGE    — set lead.stageId (emits STAGE_CHANGED event)
+//   CREATE_TASK   — make a Task linked to the lead
+//   IF            — guard: continue only if condition holds; else END run
+
+model Automation {
+  id            String              @id @default(cuid())
+  tenantId      String              @map("tenant_id")
+  name          String
+  isActive      Boolean             @default(true) @map("is_active")
+  trigger       AutomationTrigger
+  // Optional filter — narrows which firings of the trigger actually fire
+  // this automation. Shape depends on the trigger; e.g. for NEW_LEAD:
+  // { source: "webform" }. Null = no filter.
+  triggerConfig Json?               @map("trigger_config")
+  // Step array. See the comment above for the shape.
+  definition    Json
+  createdById   String?             @map("created_by_id")
+  createdAt     DateTime            @default(now()) @map("created_at")
+  updatedAt     DateTime            @updatedAt @map("updated_at")
+
+  tenant    Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  createdBy User?           @relation("AutomationCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  runs      AutomationRun[]
+
+  @@index([tenantId, isActive])
+  @@index([tenantId, trigger])
+  @@map("automations")
+}
+
+model AutomationRun {
+  id            String              @id @default(cuid())
+  automationId  String              @map("automation_id")
+  leadId        String?             @map("lead_id")
+  chatId        String?             @map("chat_id")
+  contactId     String?             @map("contact_id")
+  status        AutomationRunStatus @default(PENDING)
+  // Index of the next step to execute (0-based). On completion equals
+  // definition.steps.length.
+  currentStep   Int                 @default(0) @map("current_step")
+  // Mutable per-run state; carries step outputs forward (e.g. SEND_MESSAGE
+  // can stash the message id here for downstream IF checks).
+  context       Json?
+  startedAt     DateTime            @default(now()) @map("started_at")
+  finishedAt    DateTime?           @map("finished_at")
+  error         String?
+
+  automation Automation @relation(fields: [automationId], references: [id], onDelete: Cascade)
+  lead       Lead?      @relation(fields: [leadId], references: [id], onDelete: SetNull)
+
+  @@index([automationId, status])
+  @@index([leadId])
+  @@index([status])
+  @@map("automation_runs")
+}
+
+// ─── Lead memory (M7) ────────────────────────────────────────────────
+// Long-running "what we know about this lead" facts extracted by the AI
+// from the conversation. Schemaless JSON because the shape varies by
+// product (budget, preferred_language, last_objection, interested_product,
+// etc.). One row per lead — the scoring/suggested-reply jobs read it as
+// context, and update it after each scoring pass.
+
+model LeadMemory {
+  id          String   @id @default(cuid())
+  leadId      String   @unique @map("lead_id")
+  memory      Json     @default("{}")
+  // Bumped on each successful AI update — lets the UI surface "we just
+  // learned something new" without diffing the whole object.
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  lead Lead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  @@map("lead_memory")
+}
+
+// ─── In-app notifications (M8) ──────────────────────────────────────
+// Per-user notifications surfaced via the bell icon in the AppShell.
+// `kind` is a free-form string (e.g. "LEAD_ASSIGNED", "FOLLOWUP_SENT")
+// so adding new sources doesn't require schema changes. Optional links
+// (leadId, chatId, url) let the UI route on click.
+
+model Notification {
+  id        String    @id @default(cuid())
+  tenantId  String    @map("tenant_id")
+  userId    String    @map("user_id")
+  kind      String
+  title     String
+  body      String?
+  // Soft references to common entities. If the entity is deleted, the
+  // notification just becomes un-clickable; we don't cascade.
+  leadId    String?   @map("lead_id")
+  chatId    String?   @map("chat_id")
+  url       String?
+  readAt    DateTime? @map("read_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, readAt, createdAt])
+  @@index([tenantId, createdAt])
+  @@map("notifications")
+}
+
+// ─── Channels (M9 web chat / M10 Meta) ──────────────────────────────
+// One row per provider integration per tenant. WhatsApp ships out of the
+// box; web-chat is a built-in. Instagram + FB Messenger arrive in M10
+// using the same shape with provider-specific config blobs.
+
+model Channel {
+  id        String      @id @default(cuid())
+  tenantId  String      @map("tenant_id")
+  type      ChannelType
+  name      String
+  // Per-provider config (e.g. Meta page id + access token for FB).
+  // Encrypted-at-rest via the existing settings-style envelope when the
+  // operator marks it sensitive; the column is JSON for forward-compat.
+  config    Json?
+  isActive  Boolean     @default(true) @map("is_active")
+  createdAt DateTime    @default(now()) @map("created_at")
+  updatedAt DateTime    @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  chats  Chat[]
+
+  @@unique([tenantId, type])
+  @@map("channels")
+}
+
+// ─── Website Integrations (public API + embeddable widget) ──────────
+// One row per "website embedding the widget OR calling our public API".
+// The apiKey is the credential — operators paste it into their site or
+// pass it in API requests. allowedDomains is a CORS-style allowlist
+// matched against the request's Origin / Referer. widgetConfig drives
+// the widget's appearance (colors, position, welcome text, etc.) so a
+// single embed.js can render differently per integration.
+
+model WebsiteIntegration {
+  id                 String   @id @default(cuid())
+  tenantId           String   @map("tenant_id")
+  name               String
+  // The credential. Generated server-side as a 32-byte hex token.
+  // Unique globally (not just per-tenant) so the middleware can do
+  // a cheap O(1) lookup without first resolving the tenant.
+  apiKey             String   @unique @map("api_key")
+  // Hostnames (no protocol, no path) that may use this key. Empty
+  // array = no restriction (dev-only convenience; production should
+  // always populate). Wildcards not supported in v1.
+  allowedDomains     String[] @default([]) @map("allowed_domains")
+  isActive           Boolean  @default(true) @map("is_active")
+  widgetEnabled      Boolean  @default(true) @map("widget_enabled")
+  // Per-key rate limit, applied by our public-api middleware. Stored
+  // here (rather than a global setting) so different sites can have
+  // different budgets.
+  rateLimitPerMinute Int      @default(60) @map("rate_limit_per_minute")
+  // Free-form JSON for widget appearance + behavior:
+  // { primaryColor, position, welcomeText, whatsappNumber, logo,
+  //   businessHoursTz, requireEmail, requirePhone, ... }
+  widgetConfig       Json?    @map("widget_config")
+  createdById        String?  @map("created_by_id")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, isActive])
+  @@map("website_integrations")
 }
