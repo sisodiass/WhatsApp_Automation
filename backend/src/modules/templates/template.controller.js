@@ -2,6 +2,13 @@ import { z } from "zod";
 import { asyncHandler, BadRequest, NotFound } from "../../shared/errors.js";
 import { prisma } from "../../shared/prisma.js";
 import { getDefaultTenantId } from "../../shared/tenant.js";
+import { interpolate } from "./template.service.js";
+import {
+  buildSampleVars,
+  buildVarsForContact,
+  buildVarsForLead,
+  listVariables,
+} from "./variables.js";
 
 const TYPES = ["ONBOARDING_DEFAULT", "MANUAL_HANDOFF", "FALLBACK", "SESSION_RESUME", "DEMO_CONFIRMATION"];
 
@@ -58,4 +65,38 @@ export const remove = asyncHandler(async (req, res) => {
   if (!existing || existing.tenantId !== tenantId) throw NotFound("template not found");
   await prisma.messageTemplate.delete({ where: { id: req.params.id } });
   res.status(204).end();
+});
+
+// ─── Variables registry (autocomplete UI) ───────────────────────────
+
+export const variables = asyncHandler(async (_req, res) => {
+  res.json(listVariables());
+});
+
+// ─── Live preview ───────────────────────────────────────────────────
+// POST /api/templates/preview { content, leadId?, contactId? }
+// Renders `content` against the requested lead/contact context (or sample
+// values if neither is provided). Operators see exactly what their
+// customers will see, missing-key gaps included.
+
+const previewSchema = z.object({
+  content: z.string().min(1).max(5000),
+  leadId: z.string().optional(),
+  contactId: z.string().optional(),
+  extras: z.record(z.any()).optional(),
+});
+
+export const preview = asyncHandler(async (req, res) => {
+  const parsed = previewSchema.safeParse(req.body);
+  if (!parsed.success) throw BadRequest("invalid preview payload", parsed.error.flatten());
+  const tenantId = await getDefaultTenantId();
+  const { content, leadId, contactId, extras } = parsed.data;
+
+  let vars;
+  if (leadId) vars = await buildVarsForLead(leadId, tenantId, extras || {});
+  else if (contactId) vars = await buildVarsForContact(contactId, tenantId, extras || {});
+  else vars = { ...buildSampleVars(), ...(extras || {}) };
+
+  const rendered = interpolate(content, vars);
+  res.json({ rendered });
 });

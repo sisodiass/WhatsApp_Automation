@@ -39,3 +39,29 @@ export function enqueueOutbound(messageId, opts = {}) {
     { ...baseOpts, jobId: `out-${messageId}` },
   );
 }
+
+// Bulk broadcast outbound. Same dedup discipline as enqueueOutbound but
+// lives on a separate queue so single-chat AI replies don't starve when
+// a bulk blast is in flight.
+export function enqueueBulkOutbound(messageId, opts = {}) {
+  return getQueue(QUEUES.BULK_OUTGOING).add(
+    "send-bulk",
+    { messageId, delayMs: opts.delayMs ?? null },
+    { ...baseOpts, jobId: `bulk-${messageId}` },
+  );
+}
+
+// M6: enqueue the NEXT step of an automation run. jobId is keyed on
+// (runId, stepIndex) so retries are idempotent per-step; advancing the
+// step bumps the index and yields a fresh jobId.
+export function enqueueAutomationStep(runId, stepIndex, opts = {}) {
+  return getQueue(QUEUES.AUTOMATION_RUNS).add(
+    "step",
+    { runId, stepIndex },
+    {
+      ...baseOpts,
+      jobId: `auto-${runId}-${stepIndex}`,
+      ...(opts.delayMs ? { delay: opts.delayMs } : {}),
+    },
+  );
+}

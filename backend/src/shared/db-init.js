@@ -39,6 +39,13 @@ const STATEMENTS = [
     sql: `CREATE INDEX IF NOT EXISTS kb_chunks_embedding_idx
             ON kb_chunks USING hnsw (embedding vector_cosine_ops)`,
   },
+  {
+    // One default pipeline per tenant. Prisma DSL can't express a
+    // partial unique, so we add it here as a raw partial unique index.
+    label: "pipelines_default_per_tenant (partial unique)",
+    sql: `CREATE UNIQUE INDEX IF NOT EXISTS pipelines_default_per_tenant
+            ON pipelines (tenant_id) WHERE is_default = true`,
+  },
 ];
 
 export async function ensureKbIndexes() {

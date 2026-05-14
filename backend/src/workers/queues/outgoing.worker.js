@@ -9,8 +9,7 @@
 import { prisma } from "../../shared/prisma.js";
 import { child } from "../../shared/logger.js";
 import { getSettings } from "../../modules/settings/settings.service.js";
-import { Channels, publish } from "../../modules/whatsapp/whatsapp.bus.js";
-import { toWaJid } from "../../utils/phone.js";
+import { dispatchOutbound } from "../../modules/channels/outbound-dispatcher.js";
 
 const log = child("q:outgoing");
 
@@ -19,7 +18,7 @@ export async function processOutgoingJob(job) {
 
   const msg = await prisma.message.findUnique({
     where: { id: messageId },
-    include: { session: { include: { chat: true } } },
+    include: { session: { include: { chat: { include: { channel: true } } } } },
   });
   if (!msg) return { skipped: "missing" };
   if (msg.sentAt) return { skipped: "already_sent" };
@@ -75,21 +74,25 @@ export async function processOutgoingJob(job) {
     typingMs = 0;
   }
 
-  // Hand off to wa-worker. The wa-worker performs the simulateTyping wait
-  // before sending, so the per-job runtime here stays small (good for the
-  // BullMQ rate limiter — we count "send rate", not "queue residency").
-  await publish(Channels.OUTBOUND, {
-    messageId: msg.id,
-    to: toWaJid(msg.session.chat.phone),
-    body: msg.body,
-    simulateTyping: Math.round(typingMs),
+  // M10: per-channel dispatch. WhatsApp keeps the redis pub/sub round-
+  // trip (ack drives sent_at later); Meta channels POST directly to
+  // Graph API and stamp sent_at inline; Web Chat sets sent_at locally
+  // because the widget already polls the DB.
+  const chat = msg.session.chat;
+  const result = await dispatchOutbound({
+    msg,
+    chat,
+    channel: chat.channel,
+    typingMs: Math.round(typingMs),
   });
 
   log.info("dispatched", {
     messageId,
     source: msg.source,
+    channel: chat.channel?.type || "WHATSAPP",
     typingMs: Math.round(typingMs),
     warmup,
+    result,
   });
-  return { ok: true };
+  return result;
 }

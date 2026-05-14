@@ -199,6 +199,14 @@ export default function Inbox() {
                           )}
                         </div>
                         <div className="mt-1 flex flex-wrap items-center gap-1">
+                          {c.channel?.type && c.channel.type !== "WHATSAPP" && (
+                            <span
+                              title={`Channel: ${c.channel.name}`}
+                              className="rounded-full border border-info/40 bg-info/10 px-2 py-0.5 text-[10px] font-medium text-info"
+                            >
+                              {c.channel.type === "WEB_CHAT" ? "Web chat" : c.channel.name}
+                            </span>
+                          )}
                           {session?.campaign && (
                             <span
                               title={`Campaign tag: ${session.campaign.tag}`}

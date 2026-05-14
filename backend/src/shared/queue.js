@@ -11,6 +11,15 @@ export const QUEUES = {
   INCOMING: "incoming-messages",
   KB_SEARCH: "kb-search",
   OUTGOING: "outgoing-messages",
+  // Dedicated queue for bulk broadcasts. Separate from OUTGOING so a
+  // large campaign blast can't starve single-chat AI replies; each queue
+  // has its own concurrency + rate limiter budget.
+  BULK_OUTGOING: "bulk-outgoing",
+  // M6: each automation run step is its own job. WAIT steps reschedule
+  // the next step with a delay; everything else completes synchronously
+  // and enqueues the next step immediately. JobId = "auto-<runId>-<step>"
+  // so retries on a given step are idempotent.
+  AUTOMATION_RUNS: "automation-runs",
   SCHEDULER: "scheduler-jobs",
 };
 

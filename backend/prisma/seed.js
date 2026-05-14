@@ -159,7 +159,74 @@ async function main() {
   }
   console.log(`✓ ${templates.length} message templates ready`);
 
-  // 5. Internal test campaign. Operator-only — never deleted, tag/name
+  // 5. Default sales pipeline + 7 stages (CRM). System pipeline — cannot
+  //    be deleted; default flag is enforced via partial unique index
+  //    applied in db-init.js (one default per tenant).
+  const DEFAULT_STAGES = [
+    { name: "New",             order: 10, category: "OPEN", color: "#94a3b8" },
+    { name: "Contacted",       order: 20, category: "OPEN", color: "#60a5fa" },
+    { name: "Qualified",       order: 30, category: "OPEN", color: "#22d3ee" },
+    { name: "Demo Scheduled",  order: 40, category: "OPEN", color: "#a78bfa" },
+    { name: "Negotiation",     order: 50, category: "OPEN", color: "#fb923c" },
+    { name: "Won",             order: 60, category: "WON",  color: "#22c55e" },
+    { name: "Lost",            order: 70, category: "LOST", color: "#ef4444" },
+  ];
+
+  const existingDefault = await prisma.pipeline.findFirst({
+    where: { tenantId: tenant.id, isDefault: true },
+  });
+  let defaultPipeline = existingDefault;
+  if (!defaultPipeline) {
+    defaultPipeline = await prisma.pipeline.create({
+      data: {
+        tenantId: tenant.id,
+        name: "Sales",
+        isDefault: true,
+        isSystem: true,
+      },
+    });
+  }
+  for (const s of DEFAULT_STAGES) {
+    const existing = await prisma.stage.findFirst({
+      where: { pipelineId: defaultPipeline.id, name: s.name },
+    });
+    if (!existing) {
+      await prisma.stage.create({
+        data: { pipelineId: defaultPipeline.id, ...s },
+      });
+    }
+  }
+  console.log(`✓ default pipeline "${defaultPipeline.name}" with ${DEFAULT_STAGES.length} stages ready`);
+
+  // 6. Default channels (M9). Idempotent on (tenantId, type).
+  //    Backfills chats.channel_id for any existing rows missing it.
+  const CHANNELS = [
+    { type: "WHATSAPP", name: "WhatsApp" },
+    { type: "WEB_CHAT", name: "Web Chat" },
+  ];
+  const channelsByType = {};
+  for (const c of CHANNELS) {
+    const channel = await prisma.channel.upsert({
+      where: { tenantId_type: { tenantId: tenant.id, type: c.type } },
+      update: {},
+      create: { tenantId: tenant.id, type: c.type, name: c.name },
+    });
+    channelsByType[c.type] = channel;
+  }
+  // Backfill — existing chats predate channels; assume WhatsApp.
+  const wa = channelsByType.WHATSAPP;
+  if (wa) {
+    const linked = await prisma.chat.updateMany({
+      where: { tenantId: tenant.id, channelId: null },
+      data: { channelId: wa.id },
+    });
+    if (linked.count > 0) {
+      console.log(`✓ backfilled ${linked.count} chats to WhatsApp channel`);
+    }
+  }
+  console.log(`✓ ${CHANNELS.length} default channels ready`);
+
+  // 7. Internal test campaign. Operator-only — never deleted, tag/name
   //    locked. Use it to verify QR reconnect, provider switches, and
   //    end-to-end flow without touching live campaigns.
   const TEST_TAG = "CAMPAIGN_TEST_INTERNAL";

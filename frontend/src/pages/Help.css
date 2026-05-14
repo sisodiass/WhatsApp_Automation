@@ -1,0 +1,211 @@
+/*
+ * Help page styles.
+ *
+ * On-screen: gentle prose styling that complements the rest of the app.
+ * Print: hide app chrome (sidebar, header, ToC, "Download PDF" button)
+ *        and produce a clean printable layout that browsers can "Save as
+ *        PDF" without any extra dependencies.
+ */
+
+/* ---------- On-screen prose ---------- */
+
+.help-prose ul,
+.help-prose ol {
+  padding-left: 1.25rem;
+  margin: 0.25rem 0;
+  list-style-position: outside;
+}
+
+.help-prose ol {
+  list-style: decimal;
+}
+
+.help-prose ul {
+  list-style: disc;
+}
+
+.help-prose li {
+  margin: 0.25rem 0;
+}
+
+.help-prose li > ul,
+.help-prose li > ol {
+  margin-top: 0.25rem;
+}
+
+.help-prose p {
+  margin: 0;
+}
+
+.help-prose code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.85em;
+  padding: 0.1em 0.35em;
+  border-radius: 4px;
+  background: hsl(var(--muted));
+  color: hsl(var(--foreground));
+}
+
+.help-prose pre {
+  margin: 0.5rem 0;
+  padding: 0.75rem 1rem;
+  border-radius: 8px;
+  background: hsl(var(--muted));
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.8rem;
+  line-height: 1.5;
+  overflow-x: auto;
+}
+
+.help-prose pre code {
+  background: transparent;
+  padding: 0;
+  font-size: inherit;
+}
+
+.help-prose a {
+  color: hsl(var(--primary));
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.help-prose h3 {
+  margin-top: 1rem;
+  font-size: 1rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.help-prose blockquote {
+  border-left: 3px solid hsl(var(--border));
+  padding: 0.25rem 0 0.25rem 0.75rem;
+  margin: 0.5rem 0;
+  color: hsl(var(--muted-foreground));
+}
+
+/* ---------- Print ---------- */
+
+@page {
+  size: A4;
+  margin: 18mm 16mm;
+}
+
+@media print {
+  /* Force light theme by flipping the design-token CSS variables. The
+     whole app reads colours through these tokens (e.g.
+     `text-muted-foreground` => `color: hsl(var(--muted-foreground))`),
+     so changing them at the root cascades to every element without us
+     having to touch any markup. Targeting both `:root` and `.dark`
+     beats the dark-mode class no matter which mode the user is in. */
+  :root,
+  .dark,
+  html,
+  html.dark,
+  body,
+  body.dark {
+    --background: 0 0% 100% !important;
+    --foreground: 0 0% 8% !important;
+    --card: 0 0% 100% !important;
+    --card-foreground: 0 0% 8% !important;
+    --popover: 0 0% 100% !important;
+    --popover-foreground: 0 0% 8% !important;
+    --primary: 0 0% 8% !important;
+    --primary-foreground: 0 0% 100% !important;
+    --secondary: 0 0% 96% !important;
+    --secondary-foreground: 0 0% 8% !important;
+    /* muted-foreground was 45% on screen — too light for paper. */
+    --muted: 0 0% 96% !important;
+    --muted-foreground: 0 0% 22% !important;
+    --accent: 0 0% 96% !important;
+    --accent-foreground: 0 0% 8% !important;
+    --border: 0 0% 70% !important;
+    color-scheme: light !important;
+  }
+
+  html,
+  body {
+    background: #ffffff !important;
+    color: #111111 !important;
+  }
+
+  /* Ensure browsers don't strip colours/backgrounds to save ink. */
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* Hide app chrome: sidebar, the PageHeader, anything explicitly marked. */
+  aside,
+  nav.app-sidebar,
+  .app-sidebar,
+  [data-print="hide"] {
+    display: none !important;
+  }
+
+  /* Avoid splitting individual sections across pages where we can. */
+  .help-section {
+    break-inside: avoid-page;
+    page-break-inside: avoid;
+  }
+
+  .help-prose h3,
+  .help-section header {
+    page-break-after: avoid;
+  }
+
+  /* Placeholder boxes — keep them visible on paper. */
+  .help-placeholder {
+    border: 1.5px solid #999 !important;
+    background: #fafafa !important;
+    color: #111 !important;
+  }
+
+  /* Print URLs after links, but only for content links, not ToC anchors
+     (those are #id and noisy in print). */
+  .help-prose a[href^="http"]::after {
+    content: " (" attr(href) ")";
+    font-size: 0.8em;
+    color: #555;
+    word-break: break-all;
+  }
+
+  /* Crisper rendering of code blocks on paper. */
+  .help-prose code,
+  .help-prose pre {
+    background: #f4f4f5 !important;
+    color: #111 !important;
+    border: 1px solid #e4e4e7;
+  }
+
+  /* Release the entire height / overflow chain from <html> down to the
+     article. If ANY ancestor stays at height:100% with overflow:auto, the
+     browser clips the print output to a single viewport and you only get
+     page 1. We tag each link in the chain (AppShell outer, <main>, Help's
+     outer, Help's scroll container) so we can override them surgically. */
+  html,
+  body,
+  #root {
+    height: auto !important;
+    min-height: 0 !important;
+    overflow: visible !important;
+  }
+
+  .app-shell-root,
+  .app-shell-col,
+  .help-root,
+  .help-scroll,
+  main {
+    height: auto !important;
+    max-height: none !important;
+    min-height: 0 !important;
+    overflow: visible !important;
+    display: block !important;
+  }
+
+  /* Drop fancy shadows in print. */
+  .help-section img,
+  .help-section figure img {
+    box-shadow: none !important;
+    border: 1px solid #ccc !important;
+  }
+}

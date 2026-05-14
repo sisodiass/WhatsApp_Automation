@@ -47,3 +47,10 @@ backend/prisma/.cache/
 **/.env
 **/.wwebjs_auth/
 **/.wwebjs_cache/
+
+# Claude Code harness config — worktree-local, not useful in shared repo
+.claude/
+
+# Root-level npm install artifact (deps belong in backend/ + frontend/)
+/package.json
+/package-lock.json

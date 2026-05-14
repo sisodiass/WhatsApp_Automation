@@ -1,22 +1,29 @@
 import { NavLink, useLocation } from "react-router-dom";
 import {
   Activity,
+  Bell,
   BookOpen,
+  Bot,
   ChevronLeft,
   ChevronRight,
   ExternalLink,
   FileText,
   Heart,
+  HelpCircle,
   Inbox,
+  KeyRound,
   LayoutDashboard,
+  LayoutGrid,
   ListTodo,
   LogOut,
   MessageCircle,
   Megaphone,
   Moon,
+  Send,
   Settings as SettingsIcon,
   Sun,
   Tags as TagsIcon,
+  Users,
   Wrench,
   Monitor,
 } from "lucide-react";
@@ -34,6 +41,9 @@ const NAV_SECTIONS = [
     items: [
       { to: "/", label: "Dashboard", icon: LayoutDashboard, end: true },
       { to: "/inbox", label: "Inbox", icon: Inbox },
+      { to: "/contacts", label: "Contacts", icon: Users },
+      { to: "/sources", label: "Sources", icon: TagsIcon },
+      { to: "/pipeline", label: "Pipeline", icon: LayoutGrid },
       { to: "/queue", label: "Manual Queue", icon: ListTodo, badgeKey: "queue" },
     ],
   },
@@ -41,7 +51,12 @@ const NAV_SECTIONS = [
     label: "Configure",
     items: [
       { to: "/whatsapp", label: "WhatsApp", icon: MessageCircle },
+      { to: "/channels", label: "Channels", icon: MessageCircle, roles: ["SUPER_ADMIN", "ADMIN"] },
+      { to: "/integrations", label: "Website Integrations", icon: KeyRound, roles: ["SUPER_ADMIN", "ADMIN"] },
       { to: "/campaigns", label: "Campaigns", icon: Megaphone },
+      { to: "/bulk", label: "Bulk Broadcasts", icon: Send },
+      { to: "/followups", label: "Follow-ups", icon: Bell },
+      { to: "/automations", label: "Automations", icon: Bot, roles: ["SUPER_ADMIN", "ADMIN"] },
       { to: "/kb", label: "Knowledge Base", icon: BookOpen },
       { to: "/templates", label: "Templates", icon: FileText },
       { to: "/tags", label: "Tags", icon: TagsIcon },
@@ -61,6 +76,12 @@ const NAV_SECTIONS = [
       // frontend lives on a different origin than the backend (prod). Empty
       // in dev — Vite proxy forwards /admin/queues to the backend.
       { external: true, label: "Bull-Board", icon: Wrench, hrefBuilder: (token) => `${import.meta.env.VITE_SOCKET_URL || ""}/admin/queues?token=${encodeURIComponent(token || "")}` },
+    ],
+  },
+  {
+    label: "Resources",
+    items: [
+      { to: "/help", label: "Help Guide", icon: HelpCircle },
     ],
   },
 ];

@@ -15,7 +15,11 @@ import { processPdfJob } from "../modules/kb/kb.processor.js";
 import { processIncomingJob } from "./queues/incoming.worker.js";
 import { processKbSearchJob } from "./queues/kb-search.worker.js";
 import { processOutgoingJob } from "./queues/outgoing.worker.js";
+import { processBulkOutgoingJob } from "./queues/bulk-outgoing.worker.js";
+import { processAutomationStepJob } from "./queues/automation-runs.worker.js";
 import { processSchedulerJob } from "./queues/scheduler.worker.js";
+import { startAutomationSubscribers } from "../modules/automations/automation.subscriber.js";
+import { startNotificationSubscribers } from "../modules/notifications/notification.subscriber.js";
 
 const log = child("worker");
 
@@ -77,7 +81,28 @@ async function bootstrap() {
       limiter: { max: outboundMax, duration: 60_000 },
     }),
   );
+  // Bulk has its own concurrency + rate budget so a blast can't starve
+  // single-chat AI replies. Defaults to half the outbound limit; the
+  // scheduler drip jitters per-recipient on top of this floor.
+  const bulkRateMax = Math.max(1, Math.floor(outboundMax / 2));
+  workers.push(
+    makeWorker(QUEUES.BULK_OUTGOING, processBulkOutgoingJob, {
+      concurrency: 1,
+      limiter: { max: bulkRateMax, duration: 60_000 },
+    }),
+  );
+  // M6: automation step executor. Each job advances one step of one
+  // run. WAIT steps reschedule with `delay`; other steps are fast and
+  // enqueue immediately. Concurrency of 2 lets two parallel runs make
+  // progress without contention.
+  workers.push(makeWorker(QUEUES.AUTOMATION_RUNS, processAutomationStepJob, { concurrency: 2 }));
   workers.push(makeWorker(QUEUES.SCHEDULER, processSchedulerJob, { concurrency: 1 }));
+
+  // M6: subscribe to in-process domain events that originate in this
+  // worker (e.g. LEAD_FOLLOWUP_SENT) so they spawn matching automations.
+  startAutomationSubscribers();
+  // M8: same fan-in pattern for in-app notifications.
+  startNotificationSubscribers();
 
   // Schedule repeating jobs. Idempotent: BullMQ dedups repeats by (name, repeat-key).
   await scheduleRepeats();
@@ -124,7 +149,42 @@ async function scheduleRepeats() {
       removeOnFail: { count: 30 },
     },
   );
-  log.info("repeating jobs scheduled", { jobs: ["watchdog (30s)", "backup (cron 0 3 * * *)"] });
+  // M4 bulk-drip tick: every 60s. Walks RUNNING bulk campaigns, picks
+  // up to a batch of PENDING recipients, materializes Message rows and
+  // enqueues bulk-outgoing jobs. Idempotent — pulls only rows with
+  // planned_at IS NULL and stamps planned_at atomically.
+  await q.add(
+    "bulk-drip",
+    {},
+    {
+      repeat: { every: 60_000 },
+      jobId: "bulk-drip",
+      removeOnComplete: { count: 50 },
+      removeOnFail: { count: 50 },
+    },
+  );
+  // M5 followup-tick: every 5 minutes. Walks active FollowupRule rows
+  // and fires reminders for matching idle leads. PER_TICK_CAP in the
+  // worker keeps the per-tick blast bounded; idle detection via
+  // chat.lastMessageAt prevents reminder loops within the threshold.
+  await q.add(
+    "followup-tick",
+    {},
+    {
+      repeat: { every: 5 * 60_000 },
+      jobId: "followup-tick",
+      removeOnComplete: { count: 50 },
+      removeOnFail: { count: 50 },
+    },
+  );
+  log.info("repeating jobs scheduled", {
+    jobs: [
+      "watchdog (30s)",
+      "backup (cron 0 3 * * *)",
+      "bulk-drip (60s)",
+      "followup-tick (5m)",
+    ],
+  });
 }
 
 let workersPromise = bootstrap().catch((err) => {

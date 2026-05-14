@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Widget demo — pretend customer site</title>
+<style>
+  body {
+    font-family: ui-sans-serif, -apple-system, "Segoe UI", Roboto, sans-serif;
+    background: #f7f7f8; color: #0b0d10;
+    max-width: 720px; margin: 60px auto; padding: 0 20px; line-height: 1.55;
+  }
+  h1 { margin: 0 0 8px; font-size: 22px; }
+  p { color: #555; }
+  code { background: #eee; padding: 1px 5px; border-radius: 4px; font-size: 13px; }
+  .note { background: #fffbeb; border: 1px solid #fcd34d; padding: 10px 14px; border-radius: 6px; margin-top: 16px; font-size: 13px; }
+</style>
+</head>
+<body>
+  <h1>Pretend customer site</h1>
+  <p>This page mimics a customer's landing page. The chat bubble should appear
+  bottom-right and capture UTM params from the URL.</p>
+
+  <p>Try opening this URL with different query params:</p>
+  <pre><code>?utm_source=google&amp;utm_campaign=q4-promo</code></pre>
+
+  <div class="note">
+    <strong>Before this works:</strong> edit
+    <code>backend/public/widget/demo.html</code> and replace
+    <code>YOUR_API_KEY</code> in the script tag below with the real key from
+    <a href="/widget/embed.html">/integrations</a> in the CRM.
+  </div>
+
+  <!-- THE EMBED SNIPPET — this is exactly what a customer would copy/paste -->
+  <script
+    src="/widget.js"
+    data-api-key="YOUR_API_KEY"
+    async></script>
+</body>
+</html>

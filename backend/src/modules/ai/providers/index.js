@@ -56,6 +56,14 @@ function signature(name, chat, embed, apiKey) {
 }
 
 export async function getProvider() {
+  // Dev-only: when AI_STUB=true the factory returns a deterministic
+  // provider that emits canned JSON for the two prompts the M7 scoring
+  // module uses. Lets developers smoke-test scoring + suggested replies
+  // without an AI API key and without exhausting a quota. NEVER set
+  // AI_STUB in production — bot replies will be hard-coded.
+  if (process.env.AI_STUB === "true") {
+    return STUB_PROVIDER;
+  }
   const tenantId = await getDefaultTenantId();
   const cfg = await readSettings(tenantId, [
     "ai.provider",
@@ -102,3 +110,50 @@ export function invalidateProvider() {
 export function listProviders() {
   return Object.keys(REGISTRY);
 }
+
+// Dev stub — see getProvider's AI_STUB branch. Emits JSON that round-trips
+// the M7 prompts (scoring + suggestions). Embedding stub is also provided
+// so KB upload still works in dev environments without an AI key.
+const STUB_PROVIDER = {
+  name: "stub",
+  chatModel: "stub-model",
+  embedModel: "stub-embed",
+  embedDim: 1536,
+  async embedBatch(texts) {
+    return texts.map(() => Array(1536).fill(0));
+  },
+  async generateReply({ systemPrompt }) {
+    if (/classifies WhatsApp leads/.test(systemPrompt)) {
+      return {
+        text: JSON.stringify({
+          score: "HOT",
+          aiScore: 0.87,
+          reasoning: "Has budget, urgency, and explicit demo ask.",
+          memory: {
+            budget: "50000 INR/mo",
+            interested_product: "WhatsApp CRM",
+            buying_timeline: "this week",
+            decision_maker_role: "evaluator",
+          },
+        }),
+        model: "stub-model",
+      };
+    }
+    if (/suggesting reply options/.test(systemPrompt)) {
+      return {
+        text: JSON.stringify({
+          suggestions: [
+            "Happy to set up the demo this week — does Wednesday 2pm IST work?",
+            "Great timing! I'll have our solutions team walk you through the Pro plan. Best day to schedule?",
+            "Sure — sending a calendar link now. Anyone else from your team should join?",
+          ],
+        }),
+        model: "stub-model",
+      };
+    }
+    return { text: "(stub response)", model: "stub-model" };
+  },
+  async healthCheck() {
+    return { provider: "stub", ok: true, embed: { ok: true }, chat: { ok: true } };
+  },
+};

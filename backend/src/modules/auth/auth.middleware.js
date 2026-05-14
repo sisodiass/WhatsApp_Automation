@@ -8,6 +8,10 @@ export function requireAuth(req, _res, next) {
   try {
     const payload = verifyAccessToken(token);
     req.auth = { userId: payload.sub, role: payload.role, tenantId: payload.tid };
+    // Many controllers read `req.user.{id,role,tenantId}` — populate that
+    // shape too so we have one source of truth without rewriting every
+    // call site. (Both shapes carry the same data.)
+    req.user = { id: payload.sub, role: payload.role, tenantId: payload.tid };
     next();
   } catch (err) {
     next(err);
