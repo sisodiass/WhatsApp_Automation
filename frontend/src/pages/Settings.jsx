@@ -132,6 +132,22 @@ const META = {
     label: "Manual queue SLA (minutes)",
     help: "Items older than this get a red SLA badge in the queue UI. Operational signal — agents should target picking up before this.",
   },
+  "handover.human_request_enabled": {
+    label: "Handover on human-request keyword",
+    help: "When ON, an inbound message containing any of the human-request keywords below auto-flips the session to MANUAL with reason KEYWORD_TRIGGER. Default ON — unambiguous customer signal.",
+  },
+  "handover.human_request_keywords": {
+    label: "Human-request keywords (CSV)",
+    help: "Comma-separated phrases. Word-boundary matched (so 'human' doesn't match 'humanitarian'). Multi-word phrases match as substring. Edit to add domain-specific phrases.",
+  },
+  "handover.negative_sentiment_enabled": {
+    label: "Handover on negative sentiment",
+    help: "When ON, an inbound message containing frustration/anger cues auto-flips the session to MANUAL with reason NEGATIVE_SENTIMENT. Default OFF — false positives (e.g. 'refund' in a routine query) can over-route.",
+  },
+  "handover.negative_sentiment_keywords": {
+    label: "Negative-sentiment keywords (CSV)",
+    help: "Comma-separated phrases. Only consulted when the toggle above is ON. Tune for your customer base — e.g. industries with high refund volume should remove 'refund'.",
+  },
   "microsoft.tenant_id": {
     label: "Microsoft tenant ID",
     help: "Azure AD tenant GUID for the app registration used by the Teams demo-booking flow.",

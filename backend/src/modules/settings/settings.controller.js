@@ -37,6 +37,11 @@ const WRITABLE = new Set([
   "wa.warmup_delay_max_seconds",
   // Manual queue
   "manual_queue.sla_minutes",
+  // M11.B3 — confidence-driven handover
+  "handover.human_request_enabled",
+  "handover.human_request_keywords",
+  "handover.negative_sentiment_enabled",
+  "handover.negative_sentiment_keywords",
   // Microsoft Graph (Phase 9)
   "microsoft.tenant_id",
   "microsoft.client_id",
