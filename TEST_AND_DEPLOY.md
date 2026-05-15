@@ -4,7 +4,16 @@ The full cycle: **local smoke test → build verify → ship to VPS → post-dep
 
 For first-time VPS provisioning, see [SETUP.md](SETUP.md). For day-to-day ops once it's live, see [OPS.md](OPS.md). This file is the workflow that connects them.
 
-> **No automated test suite ships with the repo yet.** Everything below is a manual smoke checklist. If you want CI, the recommended additions live in [§9](#9-future-adding-automated-tests).
+> **Automated test suite landed in M11.D1** — `node:test` (built-in, no extra dep). The manual checklist below still covers everything the tests don't (whatsapp-web.js QR, real Razorpay/Stripe webhooks, end-to-end UI clickthroughs).
+>
+> Run the suite from `backend/`:
+> ```bash
+> npm test            # unit tests (39 tests, ~300ms, no DB required)
+> npm run test:integration  # integration tests (3 tests, needs DB + AI_STUB)
+> npm run test:all    # both
+> ```
+>
+> Integration tests need a live Postgres + Redis (the same `docker compose up -d` infra used for dev). They flip `AI_STUB=true` internally so no OpenAI/Gemini/Anthropic key is required. Tests build their own fixtures and clean up after themselves; safe to run repeatedly.
 
 ---
 

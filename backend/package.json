@@ -15,7 +15,10 @@
     "backfill:contacts": "node prisma/backfill-contacts.js",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
-    "prisma:studio": "prisma studio"
+    "prisma:studio": "prisma studio",
+    "test": "node --test --test-reporter=spec tests/unit",
+    "test:integration": "node --test --test-reporter=spec tests/integration",
+    "test:all": "node --test --test-reporter=spec tests/unit tests/integration"
   },
   "dependencies": {
     "@bull-board/api": "^6.5.0",
