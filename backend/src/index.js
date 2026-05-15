@@ -51,6 +51,14 @@ import { metaWebhookRouter } from "./modules/channels/meta-webhook.routes.js";
 import { integrationRouter } from "./modules/integrations/integration.routes.js";
 import { publicRouter } from "./modules/public/public.routes.js";
 import { mountBullBoard } from "./modules/admin/queues.routes.js";
+// M11 revenue: products, pricing rules, quotations, payments, invoices.
+import { productRouter, pricingRuleRouter } from "./modules/products/product.routes.js";
+import { quotationRouter } from "./modules/quotations/quotation.routes.js";
+import {
+  invoiceRouter,
+  paymentRouter,
+  paymentWebhookRouter,
+} from "./modules/payments/payment.routes.js";
 
 const log = child("api");
 
@@ -70,7 +78,12 @@ app.use(compress());
 app.use(express.json({
   limit: "1mb",
   verify: (req, _res, buf) => {
-    if (req.originalUrl?.startsWith("/api/webhooks/meta/")) {
+    if (
+      req.originalUrl?.startsWith("/api/webhooks/meta/") ||
+      // M11: payment provider webhooks (Razorpay HMAC-SHA256, Stripe
+      // t=...,v1=...). Both need the unparsed bytes for signature verify.
+      req.originalUrl?.startsWith("/api/webhooks/payments/")
+    ) {
       req.rawBody = buf;
     }
   },
@@ -137,6 +150,15 @@ app.get("/widget.js", (_req, res) => {
 // these are PUBLIC endpoints validated by the X-Hub-Signature-256 header,
 // not by an agent JWT. Cross-origin: Meta posts from its own servers.
 app.use("/api/webhooks/meta", cors({ origin: true, credentials: false }), metaWebhookRouter);
+// M11: Payment webhooks (Razorpay, Stripe, stub). Same model — public,
+// signature-verified, raw-body captured in the verify hook above.
+app.use("/api/webhooks/payments", cors({ origin: true, credentials: false }), paymentWebhookRouter);
+// M11: Authenticated admin endpoints.
+app.use("/api/products", productRouter);
+app.use("/api/pricing-rules", pricingRuleRouter);
+app.use("/api/quotations", quotationRouter);
+app.use("/api/payments", paymentRouter);
+app.use("/api/invoices", invoiceRouter);
 // M10: Channel admin endpoints. Auth-gated; SUPER_ADMIN/ADMIN write.
 app.use("/api/channels", channelRouter);
 // Website-integration admin endpoints (admin-only, JWT-gated). Hosts

@@ -72,6 +72,9 @@ enum ManualReason {
   ADMIN_FORCED
   GLOBAL_AI_OFF
   NEGATIVE_SENTIMENT
+  // M11: AI drafted a Quotation; an operator must review + send. Money
+  // artifacts never go out unattended.
+  AI_QUOTATION_REVIEW
 }
 
 enum TemplateType {
@@ -146,6 +149,10 @@ enum AutomationTrigger {
   TAG_ADDED
   CAMPAIGN_REPLIED
   INBOUND_KEYWORD
+  // M11: revenue events. Fire after a quotation transitions to ACCEPTED
+  // (operator or webhook-driven) or after a PaymentLink is marked PAID.
+  QUOTATION_ACCEPTED
+  PAYMENT_RECEIVED
 }
 
 enum AutomationRunStatus {
@@ -166,6 +173,58 @@ enum ChannelType {
   WEB_CHAT
 }
 
+// ─── Revenue (M11) ───────────────────────────────────────────────────
+
+enum ProductStatus {
+  ACTIVE
+  ARCHIVED
+}
+
+enum QuotationStatus {
+  DRAFT
+  SENT
+  ACCEPTED
+  REJECTED
+  EXPIRED
+  REVISED
+}
+
+enum PaymentProvider {
+  RAZORPAY
+  STRIPE
+  STUB
+}
+
+enum PaymentLinkStatus {
+  CREATED
+  PENDING
+  PAID
+  FAILED
+  EXPIRED
+  REFUNDED
+  CANCELLED
+}
+
+enum PaymentTxnStatus {
+  AUTHORIZED
+  CAPTURED
+  FAILED
+  REFUNDED
+  PARTIALLY_REFUNDED
+}
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum PricingRuleKind {
+  VOLUME_TIER
+  SEGMENT
+  TIME_BOUND
+}
+
 // ─── Tenant + Users ──────────────────────────────────────────────────
 
 model Tenant {
@@ -175,24 +234,32 @@ model Tenant {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  users            User[]
-  campaigns        Campaign[]
-  kbGroups         KbGroup[]
-  chats            Chat[]
-  tags             Tag[]
-  settings         Setting[]
-  settingsAudit    SettingAuditLog[]
-  messageTemplates MessageTemplate[]
-  contacts         Contact[]
-  pipelines        Pipeline[]
-  leads            Lead[]
-  tasks            Task[]
-  bulkCampaigns    BulkCampaign[]
-  followupRules    FollowupRule[]
-  automations      Automation[]
-  notifications    Notification[]
-  channels         Channel[]
-  integrations     WebsiteIntegration[]
+  users               User[]
+  campaigns           Campaign[]
+  kbGroups            KbGroup[]
+  chats               Chat[]
+  tags                Tag[]
+  settings            Setting[]
+  settingsAudit       SettingAuditLog[]
+  messageTemplates    MessageTemplate[]
+  contacts            Contact[]
+  pipelines           Pipeline[]
+  leads               Lead[]
+  tasks               Task[]
+  bulkCampaigns       BulkCampaign[]
+  followupRules       FollowupRule[]
+  automations         Automation[]
+  notifications       Notification[]
+  channels            Channel[]
+  integrations        WebsiteIntegration[]
+  // M11 revenue
+  products            Product[]
+  pricingRules        PricingRule[]
+  quotations          Quotation[]
+  quotationApprovals  QuotationApproval[]
+  paymentLinks        PaymentLink[]
+  paymentTransactions PaymentTransaction[]
+  invoices            Invoice[]
 
   @@map("tenants")
 }
@@ -209,21 +276,24 @@ model User {
   createdAt    DateTime  @default(now()) @map("created_at")
   updatedAt    DateTime  @updatedAt @map("updated_at")
 
-  tenant         Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  notes          Note[]
-  settingsAudit  SettingAuditLog[]
-  manualClaimed  ManualQueueItem[] @relation("ManualClaimedBy")
-  uploads        KbDocument[]      @relation("KbUploadedBy")
-  ownedContacts  Contact[]         @relation("ContactOwner")
-  assignedLeads  Lead[]            @relation("LeadAssignee")
-  assignedTasks  Task[]            @relation("TaskAssignee")
-  createdTasks   Task[]            @relation("TaskCreator")
-  leadActivities LeadActivity[]
-  bulkCampaigns  BulkCampaign[]    @relation("BulkCampaignCreator")
-  approvedBulks  BulkCampaign[]    @relation("BulkCampaignApprover")
-  followupRules  FollowupRule[]    @relation("FollowupRuleCreator")
-  automations    Automation[]      @relation("AutomationCreator")
-  notifications  Notification[]
+  tenant             Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  notes              Note[]
+  settingsAudit      SettingAuditLog[]
+  manualClaimed      ManualQueueItem[]   @relation("ManualClaimedBy")
+  uploads            KbDocument[]        @relation("KbUploadedBy")
+  ownedContacts      Contact[]           @relation("ContactOwner")
+  assignedLeads      Lead[]              @relation("LeadAssignee")
+  assignedTasks      Task[]              @relation("TaskAssignee")
+  createdTasks       Task[]              @relation("TaskCreator")
+  leadActivities     LeadActivity[]
+  bulkCampaigns      BulkCampaign[]      @relation("BulkCampaignCreator")
+  approvedBulks      BulkCampaign[]      @relation("BulkCampaignApprover")
+  followupRules      FollowupRule[]      @relation("FollowupRuleCreator")
+  automations        Automation[]        @relation("AutomationCreator")
+  notifications      Notification[]
+  // M11 revenue authoring
+  createdQuotations  Quotation[]         @relation("QuotationCreator")
+  quotationApprovals QuotationApproval[] @relation("QuotationApprover")
 
   @@index([tenantId])
   @@map("users")
@@ -433,10 +503,10 @@ model Message {
   sentAt      DateTime?        @map("sent_at")
   createdAt   DateTime         @default(now()) @map("created_at")
 
-  session            ChatSession             @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  leadActivities     LeadActivity[]
-  bulkRecipients     BulkCampaignRecipient[]
-  followupLogs       FollowupLog[]
+  session        ChatSession             @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  leadActivities LeadActivity[]
+  bulkRecipients BulkCampaignRecipient[]
+  followupLogs   FollowupLog[]
 
   @@index([sessionId, createdAt])
   @@map("messages")
@@ -611,6 +681,8 @@ model Contact {
   chats          Chat[]
   leads          Lead[]
   bulkRecipients BulkCampaignRecipient[]
+  quotations     Quotation[]
+  paymentLinks   PaymentLink[]
 
   // Mobile is the canonical identity per tenant. Email is optional, indexed
   // but not unique (one household may share an email across two contacts).
@@ -702,19 +774,20 @@ model Lead {
   createdAt     DateTime   @default(now()) @map("created_at")
   updatedAt     DateTime   @updatedAt @map("updated_at")
 
-  tenant     Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  contact    Contact        @relation(fields: [contactId], references: [id], onDelete: Cascade)
-  pipeline   Pipeline       @relation(fields: [pipelineId], references: [id], onDelete: Cascade)
+  tenant         Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  contact        Contact         @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  pipeline       Pipeline        @relation(fields: [pipelineId], references: [id], onDelete: Cascade)
   // Inbound campaign that originated this lead (WhatsApp tag-routed).
   // SetNull on cascade so deleting a campaign doesn't orphan the lead.
-  campaign       Campaign?      @relation(fields: [campaignId], references: [id], onDelete: SetNull)
-  stage          Stage          @relation(fields: [stageId], references: [id])
-  assignedTo     User?          @relation("LeadAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
+  campaign       Campaign?       @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  stage          Stage           @relation(fields: [stageId], references: [id])
+  assignedTo     User?           @relation("LeadAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
   tasks          Task[]
   activities     LeadActivity[]
   followupLogs   FollowupLog[]
   automationRuns AutomationRun[]
   memory         LeadMemory?
+  quotations     Quotation[]
 
   @@index([tenantId, pipelineId, stageId])
   @@index([tenantId, assignedToId, stageId])
@@ -792,43 +865,43 @@ model Task {
 // drip without losing already-sent recipients.
 
 model BulkCampaign {
-  id                String             @id @default(cuid())
-  tenantId          String             @map("tenant_id")
-  name              String
-  messageBody       String             @map("message_body")
-  mediaUrl          String?            @map("media_url")
-  mediaType         String?            @map("media_type")
-  status            BulkCampaignStatus @default(DRAFT)
-  scheduledAt       DateTime?          @map("scheduled_at")
+  id               String             @id @default(cuid())
+  tenantId         String             @map("tenant_id")
+  name             String
+  messageBody      String             @map("message_body")
+  mediaUrl         String?            @map("media_url")
+  mediaType        String?            @map("media_type")
+  status           BulkCampaignStatus @default(DRAFT)
+  scheduledAt      DateTime?          @map("scheduled_at")
   // Safety: hard caps the producer enforces in addition to any global
   // warmup gate. dailyLimit applies per-tenant across this bulk's recipients;
   // delayMin/delayMax are seconds between drips (jittered uniformly).
-  dailyLimit        Int                @default(500) @map("daily_limit")
-  delayMin          Int                @default(30) @map("delay_min")
-  delayMax          Int                @default(60) @map("delay_max")
+  dailyLimit       Int                @default(500) @map("daily_limit")
+  delayMin         Int                @default(30) @map("delay_min")
+  delayMax         Int                @default(60) @map("delay_max")
   // ISO-8601 local times (e.g. "22:00" / "08:00"). Recipients whose tick
   // would fall inside this window are deferred to the next allowed slot.
-  quietHoursStart   String?            @map("quiet_hours_start")
-  quietHoursEnd     String?            @map("quiet_hours_end")
+  quietHoursStart  String?            @map("quiet_hours_start")
+  quietHoursEnd    String?            @map("quiet_hours_end")
   // Skip recipients whose contact has an INBOUND message within this many
   // hours of the planned send. 0 disables the skip.
-  skipRepliedHours  Int                @default(0) @map("skip_replied_hours")
+  skipRepliedHours Int                @default(0) @map("skip_replied_hours")
   // Seeded operator-only campaigns (mirrors Campaign.isSystem semantics).
-  isSystem          Boolean            @default(false) @map("is_system")
-  createdById       String?            @map("created_by_id")
-  approvedById      String?            @map("approved_by_id")
-  approvedAt        DateTime?          @map("approved_at")
-  startedAt         DateTime?          @map("started_at")
-  completedAt       DateTime?          @map("completed_at")
+  isSystem         Boolean            @default(false) @map("is_system")
+  createdById      String?            @map("created_by_id")
+  approvedById     String?            @map("approved_by_id")
+  approvedAt       DateTime?          @map("approved_at")
+  startedAt        DateTime?          @map("started_at")
+  completedAt      DateTime?          @map("completed_at")
   // Track recipient counts denormalized for fast list views. The drip
   // worker updates these atomically when transitioning recipient status.
-  sentCount         Int                @default(0) @map("sent_count")
-  deliveredCount    Int                @default(0) @map("delivered_count")
-  readCount         Int                @default(0) @map("read_count")
-  failedCount       Int                @default(0) @map("failed_count")
-  repliedCount      Int                @default(0) @map("replied_count")
-  createdAt         DateTime           @default(now()) @map("created_at")
-  updatedAt         DateTime           @updatedAt @map("updated_at")
+  sentCount        Int                @default(0) @map("sent_count")
+  deliveredCount   Int                @default(0) @map("delivered_count")
+  readCount        Int                @default(0) @map("read_count")
+  failedCount      Int                @default(0) @map("failed_count")
+  repliedCount     Int                @default(0) @map("replied_count")
+  createdAt        DateTime           @default(now()) @map("created_at")
+  updatedAt        DateTime           @updatedAt @map("updated_at")
 
   tenant     Tenant                  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   createdBy  User?                   @relation("BulkCampaignCreator", fields: [createdById], references: [id], onDelete: SetNull)
@@ -842,25 +915,25 @@ model BulkCampaign {
 }
 
 model BulkCampaignRecipient {
-  id              String              @id @default(cuid())
-  bulkCampaignId  String              @map("bulk_campaign_id")
-  contactId       String              @map("contact_id")
+  id             String              @id @default(cuid())
+  bulkCampaignId String              @map("bulk_campaign_id")
+  contactId      String              @map("contact_id")
   // Link to the materialized message row once the drip enqueues it.
   // Nullable while PENDING; set on transition to QUEUED.
-  messageId       String?             @map("message_id")
-  status          BulkRecipientStatus @default(PENDING)
-  error           String?
+  messageId      String?             @map("message_id")
+  status         BulkRecipientStatus @default(PENDING)
+  error          String?
   // Idempotent send: the drip worker writes plannedAt when picking the row
   // so concurrent ticks don't double-enqueue. messageId+sentAt is the
   // ultimate dedup via the shared outbound rail.
-  plannedAt       DateTime?           @map("planned_at")
-  queuedAt        DateTime?           @map("queued_at")
-  sentAt          DateTime?           @map("sent_at")
-  deliveredAt     DateTime?           @map("delivered_at")
-  readAt          DateTime?           @map("read_at")
-  repliedAt       DateTime?           @map("replied_at")
-  failedAt        DateTime?           @map("failed_at")
-  createdAt       DateTime            @default(now()) @map("created_at")
+  plannedAt      DateTime?           @map("planned_at")
+  queuedAt       DateTime?           @map("queued_at")
+  sentAt         DateTime?           @map("sent_at")
+  deliveredAt    DateTime?           @map("delivered_at")
+  readAt         DateTime?           @map("read_at")
+  repliedAt      DateTime?           @map("replied_at")
+  failedAt       DateTime?           @map("failed_at")
+  createdAt      DateTime            @default(now()) @map("created_at")
 
   bulkCampaign BulkCampaign @relation(fields: [bulkCampaignId], references: [id], onDelete: Cascade)
   contact      Contact      @relation(fields: [contactId], references: [id], onDelete: Cascade)
@@ -880,27 +953,27 @@ model BulkCampaignRecipient {
 // without scanning LeadActivity (which would require a JSON predicate).
 
 model FollowupRule {
-  id                     String   @id @default(cuid())
-  tenantId               String   @map("tenant_id")
-  name                   String
-  isActive               Boolean  @default(true) @map("is_active")
+  id                    String   @id @default(cuid())
+  tenantId              String   @map("tenant_id")
+  name                  String
+  isActive              Boolean  @default(true) @map("is_active")
   // Optional pipeline + stage filter. Null = match any pipeline /
   // any stage in the tenant. Both null = "all leads".
-  pipelineId             String?  @map("pipeline_id")
-  stageId                String?  @map("stage_id")
+  pipelineId            String?  @map("pipeline_id")
+  stageId               String?  @map("stage_id")
   // Idle threshold — hours since the chat's lastMessageAt (any direction).
   // Using lastMessageAt rather than last-inbound prevents stacking reminders
   // within the threshold window.
-  hoursSinceLastInbound  Int      @map("hours_since_last_inbound")
+  hoursSinceLastInbound Int      @map("hours_since_last_inbound")
   // The MessageTemplate.name that produces the reminder body. We don't FK
   // on name (templates can be renamed); resolve at fire time.
-  templateName           String   @map("template_name")
-  maxReminders           Int      @default(1) @map("max_reminders")
-  quietHoursStart        String?  @map("quiet_hours_start")
-  quietHoursEnd          String?  @map("quiet_hours_end")
-  createdById            String?  @map("created_by_id")
-  createdAt              DateTime @default(now()) @map("created_at")
-  updatedAt              DateTime @updatedAt @map("updated_at")
+  templateName          String   @map("template_name")
+  maxReminders          Int      @default(1) @map("max_reminders")
+  quietHoursStart       String?  @map("quiet_hours_start")
+  quietHoursEnd         String?  @map("quiet_hours_end")
+  createdById           String?  @map("created_by_id")
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime @updatedAt @map("updated_at")
 
   tenant    Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   createdBy User?         @relation("FollowupRuleCreator", fields: [createdById], references: [id], onDelete: SetNull)
@@ -945,20 +1018,20 @@ model FollowupLog {
 //   IF            — guard: continue only if condition holds; else END run
 
 model Automation {
-  id            String              @id @default(cuid())
-  tenantId      String              @map("tenant_id")
+  id            String            @id @default(cuid())
+  tenantId      String            @map("tenant_id")
   name          String
-  isActive      Boolean             @default(true) @map("is_active")
+  isActive      Boolean           @default(true) @map("is_active")
   trigger       AutomationTrigger
   // Optional filter — narrows which firings of the trigger actually fire
   // this automation. Shape depends on the trigger; e.g. for NEW_LEAD:
   // { source: "webform" }. Null = no filter.
-  triggerConfig Json?               @map("trigger_config")
+  triggerConfig Json?             @map("trigger_config")
   // Step array. See the comment above for the shape.
   definition    Json
-  createdById   String?             @map("created_by_id")
-  createdAt     DateTime            @default(now()) @map("created_at")
-  updatedAt     DateTime            @updatedAt @map("updated_at")
+  createdById   String?           @map("created_by_id")
+  createdAt     DateTime          @default(now()) @map("created_at")
+  updatedAt     DateTime          @updatedAt @map("updated_at")
 
   tenant    Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   createdBy User?           @relation("AutomationCreator", fields: [createdById], references: [id], onDelete: SetNull)
@@ -970,21 +1043,21 @@ model Automation {
 }
 
 model AutomationRun {
-  id            String              @id @default(cuid())
-  automationId  String              @map("automation_id")
-  leadId        String?             @map("lead_id")
-  chatId        String?             @map("chat_id")
-  contactId     String?             @map("contact_id")
-  status        AutomationRunStatus @default(PENDING)
+  id           String              @id @default(cuid())
+  automationId String              @map("automation_id")
+  leadId       String?             @map("lead_id")
+  chatId       String?             @map("chat_id")
+  contactId    String?             @map("contact_id")
+  status       AutomationRunStatus @default(PENDING)
   // Index of the next step to execute (0-based). On completion equals
   // definition.steps.length.
-  currentStep   Int                 @default(0) @map("current_step")
+  currentStep  Int                 @default(0) @map("current_step")
   // Mutable per-run state; carries step outputs forward (e.g. SEND_MESSAGE
   // can stash the message id here for downstream IF checks).
-  context       Json?
-  startedAt     DateTime            @default(now()) @map("started_at")
-  finishedAt    DateTime?           @map("finished_at")
-  error         String?
+  context      Json?
+  startedAt    DateTime            @default(now()) @map("started_at")
+  finishedAt   DateTime?           @map("finished_at")
+  error        String?
 
   automation Automation @relation(fields: [automationId], references: [id], onDelete: Cascade)
   lead       Lead?      @relation(fields: [leadId], references: [id], onDelete: SetNull)
@@ -1003,13 +1076,13 @@ model AutomationRun {
 // context, and update it after each scoring pass.
 
 model LeadMemory {
-  id          String   @id @default(cuid())
-  leadId      String   @unique @map("lead_id")
-  memory      Json     @default("{}")
+  id        String   @id @default(cuid())
+  leadId    String   @unique @map("lead_id")
+  memory    Json     @default("{}")
   // Bumped on each successful AI update — lets the UI surface "we just
   // learned something new" without diffing the whole object.
-  updatedAt   DateTime @updatedAt @map("updated_at")
-  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  createdAt DateTime @default(now()) @map("created_at")
 
   lead Lead @relation(fields: [leadId], references: [id], onDelete: Cascade)
 
@@ -1108,4 +1181,243 @@ model WebsiteIntegration {
 
   @@index([tenantId, isActive])
   @@map("website_integrations")
+}
+
+// ─── Revenue: Products, Pricing, Quotations, Payments (M11) ─────────
+// Catalog (Product) + ad-hoc lines drive Quotations. Quotation transitions
+// emit lead stage moves via lead.service.moveLeadStage; payment-link
+// transitions do the same on PAID. Money is always Decimal(14,2); never
+// JS floats.
+
+model Product {
+  id          String        @id @default(cuid())
+  tenantId    String        @map("tenant_id")
+  sku         String
+  name        String
+  description String?
+  basePrice   Decimal       @map("base_price") @db.Decimal(14, 2)
+  currency    String        @db.VarChar(3)
+  taxRatePct  Decimal       @default(0) @map("tax_rate_pct") @db.Decimal(5, 2)
+  status      ProductStatus @default(ACTIVE)
+  metadata    Json?
+  deletedAt   DateTime?     @map("deleted_at")
+  createdAt   DateTime      @default(now()) @map("created_at")
+  updatedAt   DateTime      @updatedAt @map("updated_at")
+
+  tenant    Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  lineItems QuotationLineItem[]
+
+  @@unique([tenantId, sku])
+  @@index([tenantId, status])
+  @@index([tenantId, deletedAt])
+  @@map("products")
+}
+
+// Lightweight discount/markup rules. config shape depends on kind:
+//   VOLUME_TIER: { minQty: number, maxQty?: number, discountPct: number }
+//   SEGMENT:     { tagId: string, discountPct: number }
+//   TIME_BOUND:  { startsAt: ISO, endsAt: ISO, discountPct: number }
+// Evaluation walks all active rules ordered by priority; the first match
+// wins. v1 is intentionally simple — operators can compose multiple
+// quotations rather than expressing complex stacked rules in config.
+model PricingRule {
+  id        String          @id @default(cuid())
+  tenantId  String          @map("tenant_id")
+  name      String
+  kind      PricingRuleKind
+  productId String?         @map("product_id") // null = applies to all
+  config    Json
+  priority  Int             @default(100)
+  active    Boolean         @default(true)
+  createdAt DateTime        @default(now()) @map("created_at")
+  updatedAt DateTime        @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, active, kind])
+  @@map("pricing_rules")
+}
+
+model Quotation {
+  id                String          @id @default(cuid())
+  tenantId          String          @map("tenant_id")
+  // Human-friendly number, generated via the {prefix}-{yyyy}-{seq} pattern
+  // from settings. Unique per tenant.
+  number            String
+  leadId            String?         @map("lead_id")
+  contactId         String          @map("contact_id")
+  status            QuotationStatus @default(DRAFT)
+  currency          String          @db.VarChar(3)
+  subtotal          Decimal         @db.Decimal(14, 2)
+  discountTotal     Decimal         @default(0) @map("discount_total") @db.Decimal(14, 2)
+  taxTotal          Decimal         @default(0) @map("tax_total") @db.Decimal(14, 2)
+  grandTotal        Decimal         @map("grand_total") @db.Decimal(14, 2)
+  validUntil        DateTime        @map("valid_until")
+  terms             String?
+  notes             String?
+  // Lightweight revision chain. A REVISE on an existing quote creates a
+  // new row with version++ and parentQuotationId pointing at the source.
+  version           Int             @default(1)
+  parentQuotationId String?         @map("parent_quotation_id")
+  // Optional storage path / URL to the rendered PDF. Local-disk in v1.
+  pdfPath           String?         @map("pdf_path")
+  sentAt            DateTime?       @map("sent_at")
+  acceptedAt        DateTime?       @map("accepted_at")
+  rejectedAt        DateTime?       @map("rejected_at")
+  createdById       String?         @map("created_by_id")
+  // AI drafted this quote and an operator must approve before /send.
+  draftedByAi       Boolean         @default(false) @map("drafted_by_ai")
+  deletedAt         DateTime?       @map("deleted_at")
+  createdAt         DateTime        @default(now()) @map("created_at")
+  updatedAt         DateTime        @updatedAt @map("updated_at")
+
+  tenant       Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  contact      Contact             @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  lead         Lead?               @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  createdBy    User?               @relation("QuotationCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  parent       Quotation?          @relation("QuotationRevisions", fields: [parentQuotationId], references: [id], onDelete: SetNull)
+  revisions    Quotation[]         @relation("QuotationRevisions")
+  lineItems    QuotationLineItem[]
+  approvals    QuotationApproval[]
+  paymentLinks PaymentLink[]
+  invoices     Invoice[]
+
+  @@unique([tenantId, number])
+  @@index([tenantId, status])
+  @@index([tenantId, leadId])
+  @@index([tenantId, contactId])
+  @@index([tenantId, validUntil])
+  @@index([tenantId, createdAt])
+  @@map("quotations")
+}
+
+model QuotationLineItem {
+  id          String   @id @default(cuid())
+  quotationId String   @map("quotation_id")
+  // Null = ad-hoc line not tied to catalog. Preserve productId on revisions
+  // even if the Product is later archived — historic quotes don't change.
+  productId   String?  @map("product_id")
+  // 0-based ordinal. Preserved across revisions so revised quotes maintain
+  // line order.
+  position    Int
+  description String
+  qty         Decimal  @db.Decimal(12, 3)
+  unitPrice   Decimal  @map("unit_price") @db.Decimal(14, 2)
+  discountPct Decimal  @default(0) @map("discount_pct") @db.Decimal(5, 2)
+  taxRatePct  Decimal  @default(0) @map("tax_rate_pct") @db.Decimal(5, 2)
+  lineTotal   Decimal  @map("line_total") @db.Decimal(14, 2)
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  quotation Quotation @relation(fields: [quotationId], references: [id], onDelete: Cascade)
+  product   Product?  @relation(fields: [productId], references: [id], onDelete: SetNull)
+
+  @@index([quotationId, position])
+  @@map("quotation_line_items")
+}
+
+model QuotationApproval {
+  id              String         @id @default(cuid())
+  tenantId        String         @map("tenant_id")
+  quotationId     String         @map("quotation_id")
+  approverId      String?        @map("approver_id")
+  status          ApprovalStatus @default(PENDING)
+  thresholdAmount Decimal        @map("threshold_amount") @db.Decimal(14, 2)
+  comment         String?
+  requestedAt     DateTime       @default(now()) @map("requested_at")
+  decidedAt       DateTime?      @map("decided_at")
+
+  tenant    Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  quotation Quotation @relation(fields: [quotationId], references: [id], onDelete: Cascade)
+  approver  User?     @relation("QuotationApprover", fields: [approverId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, status])
+  @@index([quotationId])
+  @@map("quotation_approvals")
+}
+
+model PaymentLink {
+  id             String            @id @default(cuid())
+  tenantId       String            @map("tenant_id")
+  provider       PaymentProvider
+  // Provider's id for the link/order. Unique per (tenant, provider).
+  providerLinkId String            @map("provider_link_id")
+  quotationId    String?           @map("quotation_id")
+  leadId         String?           @map("lead_id")
+  contactId      String            @map("contact_id")
+  amount         Decimal           @db.Decimal(14, 2)
+  currency       String            @db.VarChar(3)
+  status         PaymentLinkStatus @default(CREATED)
+  shortUrl       String?           @map("short_url")
+  redirectUrl    String?           @map("redirect_url")
+  expiresAt      DateTime?         @map("expires_at")
+  paidAt         DateTime?         @map("paid_at")
+  metadata       Json?
+  createdById    String?           @map("created_by_id")
+  createdAt      DateTime          @default(now()) @map("created_at")
+  updatedAt      DateTime          @updatedAt @map("updated_at")
+
+  tenant       Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  contact      Contact              @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  quotation    Quotation?           @relation(fields: [quotationId], references: [id], onDelete: SetNull)
+  transactions PaymentTransaction[]
+  invoices     Invoice[]
+
+  @@unique([tenantId, provider, providerLinkId])
+  @@index([tenantId, status])
+  @@index([tenantId, leadId])
+  @@index([tenantId, contactId])
+  @@map("payment_links")
+}
+
+model PaymentTransaction {
+  id                String           @id @default(cuid())
+  tenantId          String           @map("tenant_id")
+  paymentLinkId     String?          @map("payment_link_id")
+  provider          PaymentProvider
+  // Provider's payment / charge id. Unique per (tenant, provider) for
+  // webhook idempotency.
+  providerPaymentId String           @map("provider_payment_id")
+  providerOrderId   String?          @map("provider_order_id")
+  status            PaymentTxnStatus
+  amount            Decimal          @db.Decimal(14, 2)
+  feeAmount         Decimal?         @map("fee_amount") @db.Decimal(14, 2)
+  taxOnFee          Decimal?         @map("tax_on_fee") @db.Decimal(14, 2)
+  currency          String           @db.VarChar(3)
+  method            String?
+  // Raw provider payload for forensics. Already redacted by the provider
+  // adapter (no card PANs, no CVVs — only what the provider returns).
+  raw               Json
+  capturedAt        DateTime?        @map("captured_at")
+  createdAt         DateTime         @default(now()) @map("created_at")
+
+  tenant Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  link   PaymentLink? @relation(fields: [paymentLinkId], references: [id], onDelete: SetNull)
+
+  @@unique([tenantId, provider, providerPaymentId])
+  @@index([tenantId, status])
+  @@index([providerPaymentId])
+  @@index([paymentLinkId])
+  @@map("payment_transactions")
+}
+
+model Invoice {
+  id                   String    @id @default(cuid())
+  tenantId             String    @map("tenant_id")
+  number               String
+  quotationId          String?   @map("quotation_id")
+  paymentLinkId        String?   @map("payment_link_id")
+  paymentTransactionId String?   @map("payment_transaction_id")
+  pdfPath              String?   @map("pdf_path")
+  amount               Decimal   @db.Decimal(14, 2)
+  currency             String    @db.VarChar(3)
+  sentAt               DateTime? @map("sent_at")
+  createdAt            DateTime  @default(now()) @map("created_at")
+
+  tenant      Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  quotation   Quotation?   @relation(fields: [quotationId], references: [id], onDelete: SetNull)
+  paymentLink PaymentLink? @relation(fields: [paymentLinkId], references: [id], onDelete: SetNull)
+
+  @@unique([tenantId, number])
+  @@index([tenantId, quotationId])
+  @@map("invoices")
 }

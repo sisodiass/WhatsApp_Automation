@@ -91,6 +91,39 @@ async function main() {
     { key: "microsoft.client_id", value: "" },
     { key: "microsoft.client_secret", value: "", encrypted: true },
     { key: "microsoft.organizer_user_id", value: "" },
+
+    // M11 — Quotations + Payments. The default provider is STUB so dev
+    // environments don't need a Razorpay/Stripe account to exercise the
+    // flow. Switch via Settings UI once credentials are in place.
+    { key: "payments.default_provider", value: "STUB" },
+    { key: "payments.currency_default", value: "INR" },
+    { key: "payments.razorpay.key_id", value: "", encrypted: true },
+    { key: "payments.razorpay.key_secret", value: "", encrypted: true },
+    { key: "payments.razorpay.webhook_secret", value: "", encrypted: true },
+    { key: "payments.stripe.publishable_key", value: "", encrypted: true },
+    { key: "payments.stripe.secret_key", value: "", encrypted: true },
+    { key: "payments.stripe.webhook_secret", value: "", encrypted: true },
+    // PaymentLink default lifetime (hours from creation). 0 = no expiry.
+    { key: "payments.link_expiry_hours", value: 72 },
+
+    // Quotation numbering + defaults. number_format placeholders:
+    //   {prefix}   from quotations.number_prefix
+    //   {yyyy}     4-digit current year
+    //   {seq:NNNN} zero-padded counter, scoped per (tenant, year)
+    { key: "quotations.number_prefix", value: "QTN" },
+    { key: "quotations.number_format", value: "{prefix}-{yyyy}-{seq:06}" },
+    { key: "quotations.default_validity_days", value: 14 },
+    { key: "quotations.tax_rate_default", value: 18 },
+    { key: "quotations.approval_threshold_amount", value: 100000 },
+    {
+      key: "quotations.terms_default",
+      value:
+        "1. Prices are valid for the validity period stated above.\n" +
+        "2. Taxes are included where applicable.\n" +
+        "3. Advance payment may be required to confirm the order.",
+    },
+    { key: "invoices.number_prefix", value: "INV" },
+    { key: "invoices.number_format", value: "{prefix}-{yyyy}-{seq:06}" },
   ];
 
   for (const s of defaultSettings) {
@@ -141,6 +174,53 @@ async function main() {
         "Your demo is booked for {{scheduled_at}}. Join here: {{join_url}}",
       variables: ["scheduled_at", "join_url"],
     },
+    // M11 revenue templates. Reusing FALLBACK as the `type` because the
+    // TemplateType enum doesn't carry per-template-purpose values — the
+    // `name` is the actual lookup key. (Adding new enum values to keep
+    // analytics clean is fine for a future migration; the engine treats
+    // FALLBACK as "non-special".)
+    {
+      name: "quote_sent",
+      type: "FALLBACK",
+      content:
+        "Hi {{customer_name}}, here's your quotation {{quote_number}} for {{currency}} {{grand_total}}, valid until {{valid_until}}. {{pdf_url}}",
+      variables: [
+        "customer_name",
+        "quote_number",
+        "currency",
+        "grand_total",
+        "valid_until",
+        "pdf_url",
+      ],
+    },
+    {
+      name: "payment_link",
+      type: "FALLBACK",
+      content:
+        "Hi {{customer_name}}, please use this secure link to pay {{currency}} {{amount}}: {{payment_url}}",
+      variables: ["customer_name", "currency", "amount", "payment_url"],
+    },
+    {
+      name: "payment_confirmed",
+      type: "FALLBACK",
+      content:
+        "Thank you {{customer_name}}! Your payment of {{currency}} {{amount}} has been received. Reference: {{txn_id}}.",
+      variables: ["customer_name", "currency", "amount", "txn_id"],
+    },
+    {
+      name: "payment_failed",
+      type: "FALLBACK",
+      content:
+        "Hi {{customer_name}}, we couldn't confirm your payment of {{currency}} {{amount}}. Please try again or reach out to us.",
+      variables: ["customer_name", "currency", "amount"],
+    },
+    {
+      name: "quote_expired",
+      type: "FALLBACK",
+      content:
+        "Hi {{customer_name}}, your quotation {{quote_number}} expired on {{valid_until}}. Reply if you'd like a fresh quote.",
+      variables: ["customer_name", "quote_number", "valid_until"],
+    },
   ];
 
   for (const t of templates) {
@@ -167,6 +247,10 @@ async function main() {
     { name: "Contacted",       order: 20, category: "OPEN", color: "#60a5fa" },
     { name: "Qualified",       order: 30, category: "OPEN", color: "#22d3ee" },
     { name: "Demo Scheduled",  order: 40, category: "OPEN", color: "#a78bfa" },
+    // M11: stage that quotation.service moves a lead into on send().
+    // If renamed/removed by operators the auto-move silently no-ops —
+    // intentional so custom pipelines aren't forced to keep this name.
+    { name: "Quotation Sent",  order: 45, category: "OPEN", color: "#f472b6" },
     { name: "Negotiation",     order: 50, category: "OPEN", color: "#fb923c" },
     { name: "Won",             order: 60, category: "WON",  color: "#22c55e" },
     { name: "Lost",            order: 70, category: "LOST", color: "#ef4444" },

@@ -175,6 +175,10 @@ async function runStep(step, run) {
       return doCreateTask(step, run);
     case "IF":
       return doIf(step, run);
+    case "CREATE_QUOTATION":
+      return doCreateQuotation(step, run);
+    case "SEND_PAYMENT_LINK":
+      return doSendPaymentLink(step, run);
     default:
       throw new Error(`unknown step type: ${step.type}`);
   }
@@ -342,6 +346,89 @@ async function doCreateTask(step, run) {
     },
   });
   return { kind: "ok", contextPatch: { lastTaskId: task.id } };
+}
+
+// M11: CREATE_QUOTATION — creates a DRAFT quotation tied to the run's
+// lead. Step shape: { type, lineItems: [...], terms?, notes? }. The lead's
+// contact is resolved automatically. The new quote id lands in context for
+// downstream steps to reference.
+async function doCreateQuotation(step, run) {
+  if (!run.leadId) throw new Error("CREATE_QUOTATION requires a leadId");
+  if (!Array.isArray(step.lineItems) || step.lineItems.length === 0) {
+    throw new Error("CREATE_QUOTATION.lineItems required");
+  }
+  const lead = await prisma.lead.findUnique({ where: { id: run.leadId } });
+  if (!lead) throw new Error("lead not found");
+  const { createQuotation } = await import("../quotations/quotation.service.js");
+  const quote = await createQuotation(run.automation.tenantId, {
+    contactId: lead.contactId,
+    leadId: lead.id,
+    lineItems: step.lineItems,
+    terms: step.terms ?? null,
+    notes: step.notes ?? null,
+  });
+  await prisma.leadActivity.create({
+    data: {
+      leadId: lead.id,
+      kind: "AUTOMATION",
+      data: {
+        event: "create_quotation",
+        automationId: run.automationId,
+        quotationId: quote.id,
+      },
+    },
+  });
+  return { kind: "ok", contextPatch: { lastQuotationId: quote.id } };
+}
+
+// M11: SEND_PAYMENT_LINK — creates a payment link for the run's lead /
+// quotation. Step shape: { type, amount?, currency?, quotationId?,
+// description? }. If amount/currency are omitted and a quotationId
+// (either explicit or via context.lastQuotationId) is present, we read
+// grandTotal from the quote.
+async function doSendPaymentLink(step, run) {
+  if (!run.leadId) throw new Error("SEND_PAYMENT_LINK requires a leadId");
+  const lead = await prisma.lead.findUnique({ where: { id: run.leadId } });
+  if (!lead) throw new Error("lead not found");
+
+  const ctx = run.context || {};
+  let quotationId = step.quotationId || ctx.lastQuotationId || null;
+  let amount = step.amount;
+  let currency = step.currency;
+
+  if (!amount || !currency) {
+    if (!quotationId) {
+      throw new Error("SEND_PAYMENT_LINK needs amount+currency or a quotationId");
+    }
+    const q = await prisma.quotation.findFirst({
+      where: { id: quotationId, tenantId: run.automation.tenantId, deletedAt: null },
+    });
+    if (!q) throw new Error("quotation not found for link");
+    amount = amount ?? Number(q.grandTotal);
+    currency = currency ?? q.currency;
+  }
+
+  const { createPaymentLink } = await import("../payments/payment.service.js");
+  const link = await createPaymentLink(run.automation.tenantId, {
+    contactId: lead.contactId,
+    leadId: lead.id,
+    quotationId,
+    amount,
+    currency,
+    description: step.description || "Payment",
+  });
+  await prisma.leadActivity.create({
+    data: {
+      leadId: lead.id,
+      kind: "AUTOMATION",
+      data: {
+        event: "send_payment_link",
+        automationId: run.automationId,
+        paymentLinkId: link.id,
+      },
+    },
+  });
+  return { kind: "ok", contextPatch: { lastPaymentLinkId: link.id } };
 }
 
 // IF: a guard. If the condition resolves true, the run continues to

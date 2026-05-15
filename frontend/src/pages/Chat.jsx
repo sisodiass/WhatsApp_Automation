@@ -5,6 +5,7 @@ import {
   Bot,
   Calendar,
   CircleStop,
+  FileText,
   PauseCircle,
   PlayCircle,
   Send,
@@ -315,6 +316,16 @@ export default function Chat() {
                 Active
               </Button>
               <div className="ml-auto" />
+              {chat?.contactId && (
+                <Link
+                  to={`/quotations/new?contactId=${chat.contactId}`}
+                  className="inline-flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                  title="Create a quotation pre-filled with this contact"
+                >
+                  <FileText className="h-3.5 w-3.5" />
+                  Send quote
+                </Link>
+              )}
               <Button
                 size="sm"
                 variant="ghost"

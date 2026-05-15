@@ -17,6 +17,8 @@ import { redis } from "../../shared/redis.js";
 import { Channels, publish } from "../../modules/whatsapp/whatsapp.bus.js";
 import { processBulkDripTick } from "./bulk-drip.worker.js";
 import { processFollowupTick } from "./followup-tick.worker.js";
+import { getDefaultTenantId } from "../../shared/tenant.js";
+import { sweepExpired } from "../../modules/quotations/quotation.service.js";
 
 const log = child("q:scheduler");
 const execp = promisify(exec);
@@ -49,6 +51,10 @@ export async function processSchedulerJob(job) {
       return processBulkDripTick();
     case "followup-tick":
       return processFollowupTick();
+    case "quotation-expiry-sweep": {
+      const tid = await getDefaultTenantId();
+      return sweepExpired(tid);
+    }
     default:
       log.warn("unknown scheduler job", { name: job.name });
       return { skipped: "unknown" };

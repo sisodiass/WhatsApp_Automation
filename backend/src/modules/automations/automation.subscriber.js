@@ -33,6 +33,13 @@ export function startAutomationSubscribers() {
   on(Events.LEAD_FOLLOWUP_SENT, async (payload) => {
     await fanOutToAutomations("NO_REPLY", payload);
   });
+  // M11 revenue triggers.
+  on(Events.QUOTATION_ACCEPTED, async (payload) => {
+    await fanOutToAutomations("QUOTATION_ACCEPTED", payload);
+  });
+  on(Events.PAYMENT_RECEIVED, async (payload) => {
+    await fanOutToAutomations("PAYMENT_RECEIVED", payload);
+  });
 
   log.info("automation subscribers started");
 }

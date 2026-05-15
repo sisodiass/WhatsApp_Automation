@@ -38,6 +38,25 @@ const WRITABLE = new Set([
   "microsoft.client_id",
   "microsoft.client_secret",
   "microsoft.organizer_user_id",
+  // M11 — Payments
+  "payments.default_provider",
+  "payments.currency_default",
+  "payments.link_expiry_hours",
+  "payments.razorpay.key_id",
+  "payments.razorpay.key_secret",
+  "payments.razorpay.webhook_secret",
+  "payments.stripe.publishable_key",
+  "payments.stripe.secret_key",
+  "payments.stripe.webhook_secret",
+  // M11 — Quotations
+  "quotations.number_prefix",
+  "quotations.number_format",
+  "quotations.default_validity_days",
+  "quotations.tax_rate_default",
+  "quotations.approval_threshold_amount",
+  "quotations.terms_default",
+  "invoices.number_prefix",
+  "invoices.number_format",
 ]);
 
 const valueSchema = z.object({ value: z.any() });

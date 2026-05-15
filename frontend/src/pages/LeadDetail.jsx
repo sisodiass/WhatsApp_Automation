@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import {
   ArrowLeft,
   ArrowRight,
@@ -8,6 +8,8 @@ import {
   Calendar,
   CheckCircle2,
   CircleDashed,
+  CreditCard,
+  FileText,
   Mail,
   MessageCircle,
   Phone,
@@ -16,6 +18,10 @@ import {
   StickyNote,
   User,
 } from "lucide-react";
+import {
+  PaymentLinkStatusPill,
+  QuotationStatusPill,
+} from "../components/PaymentStatusPill.jsx";
 import { api } from "../lib/api.js";
 import { toast } from "../stores/toastStore.js";
 import { PageHeader } from "../components/ui/PageHeader.jsx";
@@ -35,6 +41,19 @@ export default function LeadDetail() {
   const [note, setNote] = useState("");
   const [newTask, setNewTask] = useState({ title: "", dueAt: "" });
   const [busy, setBusy] = useState(false);
+  const [revenue, setRevenue] = useState({ quotations: [], links: [] });
+
+  async function loadRevenue() {
+    try {
+      const [qs, ls] = await Promise.all([
+        api.get("/quotations", { params: { leadId, pageSize: 25 } }).catch(() => ({ data: { items: [] } })),
+        api.get("/payments/links", { params: { leadId, pageSize: 25 } }).catch(() => ({ data: { items: [] } })),
+      ]);
+      setRevenue({ quotations: qs.data.items || [], links: ls.data.items || [] });
+    } catch {
+      /* best effort */
+    }
+  }
 
   async function load() {
     setLoading(true);
@@ -56,6 +75,7 @@ export default function LeadDetail() {
   useEffect(() => {
     load();
     loadPipelines();
+    loadRevenue();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [leadId]);
 
@@ -401,6 +421,70 @@ export default function LeadDetail() {
                     </div>
                     {t.assignedTo?.name && (
                       <span className="text-[11px] text-muted-foreground">{t.assignedTo.name}</span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </Card>
+
+        {/* ─── Revenue (Quotations + Payment links) ─── */}
+        <Card className="mt-4">
+          <div className="p-5">
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="text-sm font-medium">Quotations</h3>
+              <Link
+                to={`/quotations/new?contactId=${c?.id || ""}&leadId=${leadId}`}
+                className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+              >
+                <Plus className="h-3 w-3" /> New quote
+              </Link>
+            </div>
+            {revenue.quotations.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No quotations for this lead.</p>
+            ) : (
+              <ul className="divide-y text-sm">
+                {revenue.quotations.map((q) => (
+                  <li key={q.id} className="flex items-center gap-3 py-2">
+                    <FileText className="h-3.5 w-3.5 text-muted-foreground" />
+                    <Link className="font-mono text-xs text-primary" to={`/quotations/${q.id}`}>
+                      {q.number}
+                    </Link>
+                    <QuotationStatusPill status={q.status} />
+                    <div className="ml-auto tabular-nums">
+                      {q.currency} {Number(q.grandTotal).toFixed(2)}
+                    </div>
+                    <div className="text-[11px] text-muted-foreground">
+                      valid {new Date(q.validUntil).toISOString().slice(0, 10)}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            <h3 className="mt-5 mb-3 text-sm font-medium">Payment links</h3>
+            {revenue.links.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No payment links yet.</p>
+            ) : (
+              <ul className="divide-y text-sm">
+                {revenue.links.map((l) => (
+                  <li key={l.id} className="flex items-center gap-3 py-2">
+                    <CreditCard className="h-3.5 w-3.5 text-muted-foreground" />
+                    <span className="text-xs">{l.provider}</span>
+                    <PaymentLinkStatusPill status={l.status} />
+                    <div className="ml-auto tabular-nums">
+                      {l.currency} {Number(l.amount).toFixed(2)}
+                    </div>
+                    {l.shortUrl && (
+                      <a
+                        className="text-xs text-primary"
+                        href={l.shortUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        Open
+                      </a>
                     )}
                   </li>
                 ))}

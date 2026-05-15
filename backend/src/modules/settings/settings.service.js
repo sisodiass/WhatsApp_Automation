@@ -19,6 +19,7 @@
 import { prisma } from "../../shared/prisma.js";
 import { decrypt, encrypt } from "../../utils/crypto.js";
 import { invalidateProvider } from "../ai/providers/index.js";
+import { invalidatePaymentsProvider } from "../payments/providers/index.js";
 
 // Keys that must always be encrypted at rest. Add API keys / OAuth secrets
 // here; the regex below also catches anything ending in a secret suffix.
@@ -161,6 +162,8 @@ export async function setSetting({ tenantId, key, value, changedById }) {
 
   cacheDel(tenantId, key);
   if (PROVIDER_KEYS.has(key)) invalidateProvider();
+  // M11: any payments.* change busts the payments-provider cache.
+  if (key.startsWith("payments.")) invalidatePaymentsProvider();
 
   return row;
 }
