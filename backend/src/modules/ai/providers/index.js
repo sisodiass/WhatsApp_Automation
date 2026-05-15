@@ -223,6 +223,32 @@ const STUB_PROVIDER = {
       };
     }
     if (/suggesting reply options/.test(systemPrompt)) {
+      // M11.B4: stub branches on the mode hint embedded in the system
+      // prompt so tests can exercise each mode without a real model.
+      if (/MODE: objection-handling/.test(systemPrompt)) {
+        return {
+          text: JSON.stringify({
+            suggestions: [
+              "Totally hear you on the price — let me show you the actual ROI numbers from a similar customer.",
+              "We've found teams typically save 8-12 hours/week with this; happy to share the math.",
+              "Want to try a 14-day pilot at no cost? That way you only commit once you see the value.",
+            ],
+          }),
+          model: "stub-model",
+        };
+      }
+      if (/MODE: upsell-aware/.test(systemPrompt)) {
+        return {
+          text: JSON.stringify({
+            suggestions: [
+              "Glad the Pro plan landed well — would the Analytics add-on help your reporting needs?",
+              "Should I lock in the deal today? I can include onboarding training if you'd like.",
+              "Quick check — do you also need the priority support tier? Most teams your size add it.",
+            ],
+          }),
+          model: "stub-model",
+        };
+      }
       return {
         text: JSON.stringify({
           suggestions: [

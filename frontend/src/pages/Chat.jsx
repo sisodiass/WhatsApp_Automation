@@ -54,6 +54,9 @@ export default function Chat() {
   const [suggestTone, setSuggestTone] = useState("professional");
   const [suggestBusy, setSuggestBusy] = useState(false);
   const [suggestions, setSuggestions] = useState(null);
+  // M11.B4: context returned alongside the suggestions so the UI can
+  // explain WHY they look like they do (objection-handling / upsell).
+  const [suggestMeta, setSuggestMeta] = useState(null);
   const scrollRef = useRef(null);
 
   async function loadShell() {
@@ -365,6 +368,12 @@ export default function Chat() {
                         tone: suggestTone,
                       });
                       setSuggestions(data.suggestions || []);
+                      setSuggestMeta({
+                        mode: data.mode || "default",
+                        intent: data.intent || null,
+                        score: data.score || null,
+                        candidateProducts: data.candidateProducts || [],
+                      });
                     } catch (err) {
                       toast.error(err.response?.data?.error?.message || "Suggest failed");
                     } finally {
@@ -384,10 +393,30 @@ export default function Chat() {
                   <option value="friendly">Friendly</option>
                   <option value="brief">Brief</option>
                 </select>
+                {/* M11.B4: mode badge explains why the suggestions look
+                    the way they do. Only renders for the two non-default
+                    modes — default mode keeps the UI clean. */}
+                {suggestMeta && suggestMeta.mode && suggestMeta.mode !== "default" && (
+                  <span
+                    className={
+                      "rounded-full px-2 py-0.5 text-[10px] font-medium " +
+                      (suggestMeta.mode === "objection-handling"
+                        ? "bg-warning/15 text-warning"
+                        : "bg-success/15 text-success")
+                    }
+                  >
+                    {suggestMeta.mode === "objection-handling"
+                      ? "Objection-handling"
+                      : "Upsell-aware"}
+                  </span>
+                )}
                 {suggestions && (
                   <button
                     type="button"
-                    onClick={() => setSuggestions(null)}
+                    onClick={() => {
+                      setSuggestions(null);
+                      setSuggestMeta(null);
+                    }}
                     className="ml-auto text-xs text-muted-foreground hover:text-foreground"
                   >
                     Dismiss
@@ -403,6 +432,7 @@ export default function Chat() {
                         onClick={() => {
                           setReply(s);
                           setSuggestions(null);
+                          setSuggestMeta(null);
                         }}
                         className="block w-full rounded-md border bg-info/5 px-3 py-1.5 text-left text-sm transition-colors hover:bg-info/10"
                       >
@@ -410,6 +440,20 @@ export default function Chat() {
                       </button>
                     </li>
                   ))}
+                  {/* M11.B4: when upsell-aware mode fired, surface the
+                      candidate products the AI was given as input. Lets
+                      the operator quickly see what add-ons are on the
+                      table without leaving the chat. */}
+                  {suggestMeta?.mode === "upsell-aware" &&
+                    suggestMeta.candidateProducts?.length > 0 && (
+                      <li className="pt-1 text-[10px] text-muted-foreground">
+                        Candidate add-ons:{" "}
+                        {suggestMeta.candidateProducts
+                          .slice(0, 5)
+                          .map((p) => p.name)
+                          .join(" · ")}
+                      </li>
+                    )}
                 </ul>
               )}
               <form onSubmit={send} className="flex items-end gap-2 p-4">

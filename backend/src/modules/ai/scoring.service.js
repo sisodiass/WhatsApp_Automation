@@ -245,13 +245,68 @@ async function maybeAutoDraftQuote({ tenantId, leadId, memory, buyingSignals }) 
 
 // ─── Suggested replies ──────────────────────────────────────────────
 
+// M11.B4: suggestion mode picker. Pure function — easy to unit test.
+// Objection wins over upsell when both apply, since closing an objection
+// is higher leverage than expanding the cart.
+function pickSuggestionMode({ lastIntent, score, hasCandidateProducts }) {
+  if (lastIntent === "OBJECTION") return "objection-handling";
+  if (score === "HOT" && hasCandidateProducts) return "upsell-aware";
+  return "default";
+}
+
+// Pull up to N active products that look related to the customer's
+// interested_product (case-insensitive contains match on name). Falls
+// back to most-recent active products when no interest is recorded.
+// Returns just the fields the prompt needs.
+async function fetchCandidateProducts(tenantId, interestedProduct, limit = 5) {
+  const where = {
+    tenantId,
+    status: "ACTIVE",
+    deletedAt: null,
+    ...(interestedProduct
+      ? { name: { contains: interestedProduct, mode: "insensitive" } }
+      : {}),
+  };
+  const rows = await prisma.product.findMany({
+    where,
+    orderBy: { updatedAt: "desc" },
+    take: limit,
+    select: { id: true, name: true, basePrice: true, currency: true },
+  });
+  return rows.map((p) => ({
+    id: p.id,
+    name: p.name,
+    basePrice: p.basePrice ? p.basePrice.toString() : null,
+    currency: p.currency || null,
+  }));
+}
+
 export async function suggestReplies(tenantId, chatId, opts = {}) {
   const tone = SUGGEST_TONES.has(opts.tone) ? opts.tone : "professional";
 
   const chat = await prisma.chat.findFirst({
     where: { id: chatId, tenantId },
     include: {
-      contact: { select: { firstName: true, lastName: true, mobile: true } },
+      contact: {
+        select: {
+          firstName: true,
+          lastName: true,
+          mobile: true,
+          // M11.B4: most-recent lead for this contact, with memory.
+          // Drives the context-aware prompt mode below. Lead is
+          // hard-deleted (no soft-delete column), so we just take the
+          // most recent by updatedAt.
+          leads: {
+            orderBy: { updatedAt: "desc" },
+            take: 1,
+            select: {
+              id: true,
+              score: true,
+              memory: { select: { memory: true } },
+            },
+          },
+        },
+      },
     },
   });
   if (!chat) throw NotFound("chat not found");
@@ -266,14 +321,44 @@ export async function suggestReplies(tenantId, chatId, opts = {}) {
     throw BadRequest("no messages on this chat — nothing to suggest from");
   }
 
+  // M11.B4: extract lead context. All optional — when none of this is
+  // populated, the prompt falls back to the original M7 generic mode.
+  const lead = chat.contact?.leads?.[0];
+  const memory = lead?.memory?.memory || {};
+  const lastIntent = typeof memory.last_intent === "string" ? memory.last_intent : null;
+  const lastObjection = typeof memory.last_objection === "string" ? memory.last_objection : null;
+  const interestedProduct =
+    typeof memory.interested_product === "string" ? memory.interested_product : null;
+  const score = lead?.score || null;
+
+  // Upsell-aware needs candidate products. Skip the catalog read when the
+  // lead isn't HOT — saves a query on the common path.
+  const candidateProducts =
+    score === "HOT" ? await fetchCandidateProducts(tenantId, interestedProduct) : [];
+
+  const mode = pickSuggestionMode({
+    lastIntent,
+    score,
+    hasCandidateProducts: candidateProducts.length > 0,
+  });
+
   const provider = await getProvider();
-  const systemPrompt = buildSuggestionsPrompt(tone);
+  const systemPrompt = buildSuggestionsPrompt(tone, {
+    mode,
+    lastObjection,
+    interestedProduct,
+    candidateProducts,
+  });
   const userPrompt = [
     `Customer: ${[chat.contact?.firstName, chat.contact?.lastName].filter(Boolean).join(" ") || chat.contact?.mobile || "(unknown)"}`,
+    score ? `Lead score: ${score}` : "",
+    lastIntent ? `Last detected intent: ${lastIntent}` : "",
     "",
     "Conversation so far:",
     renderConversation(messages),
-  ].join("\n");
+  ]
+    .filter(Boolean)
+    .join("\n");
 
   const r = await provider.generateReply({ systemPrompt, userPrompt, timeoutMs: 15_000 });
   let parsed;
@@ -290,5 +375,15 @@ export async function suggestReplies(tenantId, chatId, opts = {}) {
         .slice(0, 3)
     : [];
   if (suggestions.length === 0) throw BadRequest("AI returned no usable suggestions");
-  return { tone, suggestions, model: provider.chatModel };
+  return {
+    tone,
+    suggestions,
+    model: provider.chatModel,
+    // M11.B4 metadata so the UI can render a mode badge / product chips
+    // without re-fetching anything.
+    mode,
+    intent: lastIntent,
+    score,
+    candidateProducts,
+  };
 }
