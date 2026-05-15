@@ -44,6 +44,12 @@ export const config = {
     chatModel: process.env.GEMINI_CHAT_MODEL || "gemini-2.0-flash",
     embedModel: process.env.GEMINI_EMBED_MODEL || "gemini-embedding-001",
   },
+  // Claude is chat-only — no native embedding model. The provider factory
+  // routes embeddings through ai.embedding_provider (openai or gemini).
+  claude: {
+    apiKey: process.env.ANTHROPIC_API_KEY || "",
+    chatModel: process.env.ANTHROPIC_CHAT_MODEL || "claude-3-5-sonnet-latest",
+  },
 
   tenant: {
     defaultSlug: process.env.DEFAULT_TENANT_SLUG || "default",

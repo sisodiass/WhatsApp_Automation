@@ -80,6 +80,18 @@ const META = {
     label: "Gemini embedding model",
     help: "Model used for KB chunk embeddings. Configured to output 1536-dim vectors (Matryoshka projection).",
   },
+  "ai.claude.api_key": {
+    label: "Anthropic Claude API key",
+    help: "Encrypted at rest. Get one at console.anthropic.com. Claude is chat-only — set ai.embedding_provider to openai or gemini for KB.",
+  },
+  "ai.claude.chat_model": {
+    label: "Claude chat model",
+    help: "Model used for generating customer replies when ai.provider is claude. claude-3-5-sonnet-latest is the default.",
+  },
+  "ai.embedding_provider": {
+    label: "Embedding provider (when chat = Claude)",
+    help: "Which provider supplies KB embeddings. Only consulted when ai.provider is claude (Claude has no native embeddings). Must be openai or gemini.",
+  },
   "session.inactivity_reset_days": {
     label: "Inactivity reset (days)",
     help: "Customer must be idle longer than this AND re-enter via campaign tag to start a fresh session. Plain inactivity below this never resets.",
@@ -209,7 +221,8 @@ const META = {
 };
 
 const ENUMS = {
-  "ai.provider": ["openai", "gemini"],
+  "ai.provider": ["openai", "gemini", "claude"],
+  "ai.embedding_provider": ["openai", "gemini"],
   "payments.default_provider": ["STUB", "RAZORPAY", "STRIPE"],
 };
 
