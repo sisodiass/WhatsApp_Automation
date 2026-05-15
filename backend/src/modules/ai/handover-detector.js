@@ -76,14 +76,22 @@ function parseKeywords(raw, fallback) {
 // - Single token (no spaces) → match on word boundary.
 // - Multi-word phrase → match as a contiguous substring with whitespace
 //   flexibility (one or more spaces between words).
+//
+// Word boundaries (\b) only make sense between word characters. We add
+// them conditionally so keywords starting/ending with punctuation (e.g.
+// "$99", "100+") still match — caught by the unit test for regex-meta
+// safety.
 function phraseMatches(text, kw) {
   if (!kw) return false;
+  const wordChar = /\w/;
+  const lb = wordChar.test(kw.charAt(0)) ? "\\b" : "";
+  const rb = wordChar.test(kw.charAt(kw.length - 1)) ? "\\b" : "";
   if (!/\s/.test(kw)) {
-    const re = new RegExp(`\\b${escapeRegExp(kw)}\\b`, "i");
+    const re = new RegExp(`${lb}${escapeRegExp(kw)}${rb}`, "i");
     return re.test(text);
   }
   const pattern = kw.split(/\s+/).map(escapeRegExp).join("\\s+");
-  return new RegExp(`\\b${pattern}\\b`, "i").test(text);
+  return new RegExp(`${lb}${pattern}${rb}`, "i").test(text);
 }
 
 function escapeRegExp(s) {
