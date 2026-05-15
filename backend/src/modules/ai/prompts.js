@@ -47,23 +47,80 @@ export function buildScoringPrompt() {
   ].join("\n");
 }
 
-export function buildSuggestionsPrompt(tone) {
+// M11.B4: suggestions prompt is now context-aware. Three modes derived
+// from the lead's last_intent + score + product context:
+//
+//   default           — generic "advance the sale" suggestions (unchanged
+//                       from M7).
+//   objection-handling — last_intent === OBJECTION. Suggestions explicitly
+//                       address the detected concern; one acknowledges,
+//                       one re-frames value, one offers a concrete next
+//                       step.
+//   upsell-aware      — score === HOT AND candidate products provided.
+//                       At least one suggestion includes a relevant
+//                       add-on or higher-tier proposition.
+//
+// The caller decides the mode; the prompt only ingests it. When OBJECTION
+// AND HOT both apply, objection-handling wins (closing the objection
+// matters more than expanding the cart).
+export function buildSuggestionsPrompt(tone, ctx = {}) {
   const toneHint = {
     professional: "Use polished, business-appropriate phrasing.",
     friendly: "Use warm, conversational phrasing with light personality.",
     brief: "Be terse — under 20 words per option.",
   }[tone] || "Use natural conversational phrasing.";
 
-  return [
+  const lines = [
     "You are an AI assistant suggesting reply options for a human sales agent on WhatsApp.",
     `Tone: ${tone}. ${toneHint}`,
-    "Read the conversation. Suggest exactly 3 distinct reply options the agent could send NEXT.",
-    "Each option should advance the conversation toward closing a sale — answer the customer,",
-    "ask a qualifying question, or propose a next step. Vary the angle across the 3.",
+  ];
+
+  if (ctx.mode === "objection-handling") {
+    lines.push(
+      "",
+      "MODE: objection-handling. The customer's last message expressed",
+      "an OBJECTION. Your three suggestions MUST address it directly:",
+      "  1) Acknowledge the concern without being defensive.",
+      "  2) Re-frame the value or correct a misconception with a concrete fact.",
+      "  3) Offer a low-friction next step (free trial, demo, case study).",
+    );
+    if (ctx.lastObjection) {
+      lines.push(`Detected objection focus: ${ctx.lastObjection}.`);
+    }
+  } else if (ctx.mode === "upsell-aware") {
+    lines.push(
+      "",
+      "MODE: upsell-aware. The lead is HOT and ready to expand the deal.",
+      "Make 3 suggestions where AT LEAST ONE proposes a relevant add-on,",
+      "higher tier, or bundle — naturally, without sounding pushy. The",
+      "other two can be generic next-step or closing suggestions.",
+    );
+    if (Array.isArray(ctx.candidateProducts) && ctx.candidateProducts.length) {
+      lines.push(
+        "Candidate add-on products (pick at most one per suggestion):",
+        ...ctx.candidateProducts
+          .slice(0, 5)
+          .map((p) => `  - ${p.name}${p.basePrice ? ` (${p.currency || ""} ${p.basePrice})` : ""}`),
+      );
+    }
+    if (ctx.interestedProduct) {
+      lines.push(`Customer's primary interest: ${ctx.interestedProduct}.`);
+    }
+  } else {
+    lines.push(
+      "Read the conversation. Suggest exactly 3 distinct reply options the agent could send NEXT.",
+      "Each option should advance the conversation toward closing a sale — answer the customer,",
+      "ask a qualifying question, or propose a next step. Vary the angle across the 3.",
+    );
+  }
+
+  lines.push(
     "",
-    "Output ONLY a JSON object: { \"suggestions\": [\"...\", \"...\", \"...\"] }",
-    "No prose, no markdown fence, no numbering inside the strings.",
-  ].join("\n");
+    'Output ONLY a JSON object: { "suggestions": ["...", "...", "..."] }',
+    "Exactly 3 strings. No prose, no markdown fence, no numbering inside the strings.",
+  );
+
+  return lines.join("\n");
 }
 
 // Builds the user-side context payload that gets paired with the system
