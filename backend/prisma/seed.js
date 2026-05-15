@@ -247,6 +247,10 @@ async function main() {
     { name: "Contacted",       order: 20, category: "OPEN", color: "#60a5fa" },
     { name: "Qualified",       order: 30, category: "OPEN", color: "#22d3ee" },
     { name: "Demo Scheduled",  order: 40, category: "OPEN", color: "#a78bfa" },
+    // M11: stage that quotation.service moves a lead into on send().
+    // If renamed/removed by operators the auto-move silently no-ops —
+    // intentional so custom pipelines aren't forced to keep this name.
+    { name: "Quotation Sent",  order: 45, category: "OPEN", color: "#f472b6" },
     { name: "Negotiation",     order: 50, category: "OPEN", color: "#fb923c" },
     { name: "Won",             order: 60, category: "WON",  color: "#22c55e" },
     { name: "Lost",            order: 70, category: "LOST", color: "#ef4444" },
