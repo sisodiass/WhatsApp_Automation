@@ -1,0 +1,143 @@
+# M11.D2 — Continuous integration gate.
+#
+# Three jobs, run in parallel where possible:
+#   - unit          : backend unit tests (no infra; ~300ms locally)
+#   - integration   : backend integration tests against Postgres+pgvector + Redis
+#   - frontend-build: vite build sanity check
+#
+# All three must be green for the PR check to pass. Configure as a
+# required status check in the repo's branch-protection rules.
+
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+# Cancel older runs on the same ref. Saves Actions minutes on rapid pushes.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: "20"
+
+jobs:
+  unit:
+    name: backend / unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Generate Prisma client
+        # Required because the test files import @prisma/client modules
+        # (even unit tests do — the imports resolve before tests run).
+        # Doesn't talk to a database; just emits the typed client.
+        run: npm run prisma:generate
+      - name: Run unit tests
+        run: npm test
+
+  integration:
+    name: backend / integration tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: backend
+    services:
+      postgres:
+        # Same image used in docker-compose.yml — pgvector preinstalled
+        # so the kb_chunks table's vector column doesn't fail to create.
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: sa
+          POSTGRES_PASSWORD: sa
+          POSTGRES_DB: salesautomation
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U sa -d salesautomation"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      # Match what the dev .env.example exposes. The encryption + JWT
+      # values are throwaway — only used to satisfy the config validator
+      # at boot. Tests don't sign real tokens or persist real secrets.
+      DATABASE_URL: postgresql://sa:sa@localhost:5432/salesautomation
+      REDIS_URL: redis://localhost:6379
+      JWT_SECRET: ci-jwt-secret-${{ github.sha }}-padding-to-make-it-long-enough-for-the-validator
+      ENCRYPTION_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+      # Stub flag so integration tests don't burn AI tokens.
+      AI_STUB: "true"
+      # Provider-config fallbacks so settings reads have something to
+      # decrypt even though we never call the providers.
+      OPENAI_API_KEY: sk-ci-stub
+      SEED_ADMIN_EMAIL: admin@local.test
+      SEED_ADMIN_PASSWORD: ci-admin-password
+      DEFAULT_TENANT_SLUG: default
+      DEFAULT_TENANT_NAME: CI Tenant
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Apply migrations
+        # `migrate deploy` is the production-style apply — no shadow DB,
+        # no dev migration prompts. Fails loudly if any migration is
+        # invalid against fresh Postgres.
+        run: npx prisma migrate deploy
+      - name: Seed default tenant + settings
+        run: npm run seed
+      - name: Run integration tests
+        run: npm run test:integration
+
+  frontend-build:
+    name: frontend / vite build
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Build
+        run: npm run build
+
+# Note: we intentionally do NOT add a `prisma migrate diff` job here.
+# The kb_chunks pgvector HNSW index and the tsvector generated column
+# are applied at runtime by db-init.js (raw SQL outside Prisma migrations),
+# so `migrate diff` between schema.prisma and the live DB always reports
+# a non-empty diff. The integration job below already runs
+# `prisma migrate deploy` against a fresh DB, which catches the
+# real failure mode: a migration that won't apply cleanly.
