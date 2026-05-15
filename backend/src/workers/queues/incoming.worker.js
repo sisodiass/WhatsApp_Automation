@@ -5,15 +5,19 @@
 // Gates (in order):
 //   1. Message + session exist, session not ended.
 //   2. session.mode === AI (otherwise it's already MANUAL — agent owns it)
-//   3. ai_reply_count < ai.max_replies_per_session  (the only AUTO-MANUAL trigger)
-//   4. settings.ai.global_enabled                   (FALLBACK — keeps mode AI)
-//   5. campaign has at least one KB group attached  (FALLBACK — keeps mode AI)
+//   3. ai_reply_count < ai.max_replies_per_session  (auto-MANUAL trigger)
+//   4. M11.B3 keyword-driven handover (human request, opt-in negative
+//      sentiment) — hard auto-MANUAL flip on match. Default ON for
+//      human-request, OFF for sentiment.
+//   5. settings.ai.global_enabled                   (FALLBACK — keeps mode AI)
+//   6. campaign has at least one KB group attached  (FALLBACK — keeps mode AI)
 //
-// Policy: the only thing that auto-flips a session to MANUAL is the
-// 10-reply cap. Everything else (global off, no KB groups, low confidence
-// in kb-search, generation timeout) sends the FALLBACK template, counts
-// it toward the cap, and stays in AI mode. Admin can manually flip to
-// MANUAL anytime via the chat UI.
+// Policy: the cap (gate 3) is the only auto-flip in the original design.
+// M11.B3 adds two more explicit auto-flips because they are unambiguous
+// customer signals: "I want a human" (gate 4a) and frustration cues
+// (gate 4b, opt-in). Everything else (global off, no KB groups, low
+// confidence in kb-search, generation timeout) sends the FALLBACK
+// template, counts toward the cap, and stays in AI mode.
 
 import { prisma } from "../../shared/prisma.js";
 import { child } from "../../shared/logger.js";
@@ -26,6 +30,7 @@ import {
 import { renderTemplate } from "../../modules/templates/template.service.js";
 import { sendFallbackMessage } from "../../modules/ai/fallback.service.js";
 import { enqueueKbSearch, enqueueOutbound } from "../../modules/queue/producers.js";
+import { evaluateHandover } from "../../modules/ai/handover-detector.js";
 
 const log = child("q:incoming");
 
@@ -55,13 +60,31 @@ export async function processIncomingJob(job) {
   const cfg = await getSettings(tenantId, [
     "ai.global_enabled",
     "ai.max_replies_per_session",
+    "handover.human_request_enabled",
+    "handover.human_request_keywords",
+    "handover.negative_sentiment_enabled",
+    "handover.negative_sentiment_keywords",
   ]);
 
-  // Gate: 10-cap. THIS is the only auto-MANUAL trigger.
+  // Gate: 10-cap. Auto-MANUAL trigger.
   const cap = Number(cfg["ai.max_replies_per_session"] ?? 10);
   if (session.aiReplyCount >= cap) {
     await escalateToManual(session, "AI_REPLY_LIMIT", tenantId);
     return { skipped: "cap_reached" };
+  }
+
+  // M11.B3 Gate: keyword-driven handover. Cheap pre-AI check. Two
+  // separately-toggleable detectors share one entry point so we don't
+  // double-fire (human-request wins if both match).
+  const detect = evaluateHandover(msg.body, cfg);
+  if (detect.flip) {
+    log.info("keyword handover triggered", {
+      sessionId: session.id,
+      reason: detect.reason,
+      matched: detect.matched,
+    });
+    await escalateToManual(session, detect.reason, tenantId);
+    return { skipped: "handover_keyword", reason: detect.reason, matched: detect.matched };
   }
 
   // Gate: global AI off → fallback (don't flip MANUAL automatically).

@@ -89,6 +89,22 @@ async function main() {
     { key: "wa.warmup_delay_max_seconds", value: 40 },
     // Manual queue SLA: items older than this are flagged in the UI.
     { key: "manual_queue.sla_minutes", value: 10 },
+    // M11.B3 — confidence-driven handover (keyword pre-AI gate).
+    // Human-request is ON by default (unambiguous customer signal).
+    // Negative-sentiment is OFF by default — false positives on words
+    // like "refund" or "cancel" could over-route routine queries.
+    { key: "handover.human_request_enabled", value: true },
+    {
+      key: "handover.human_request_keywords",
+      value:
+        "human,real person,real human,agent,speak to someone,talk to a person,talk to someone,representative,customer service,customer support,live person,support team,actual person",
+    },
+    { key: "handover.negative_sentiment_enabled", value: false },
+    {
+      key: "handover.negative_sentiment_keywords",
+      value:
+        "frustrated,angry,furious,terrible,awful,unacceptable,refund,cancel my,disappointed,unhappy,worst,useless,scam,fraud,complaint,lawsuit",
+    },
     // Microsoft Graph (Teams demo booking — Phase 9). Seeded as empty
     // placeholders so the "Microsoft Teams" section renders in Settings UI
     // even before the operator fills them. Until all four are set, demo
