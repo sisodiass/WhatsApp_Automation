@@ -20,6 +20,29 @@ const log = child("ai-scoring");
 
 const SCORE_BUCKETS = new Set(["HOT", "WARM", "COLD", "UNQUALIFIED"]);
 const SUGGEST_TONES = new Set(["professional", "friendly", "brief"]);
+// M11.B2: intent classifier values. Orthogonal to score — describes
+// the customer's latest stance independent of how qualified they are.
+const INTENT_VALUES = new Set([
+  "PURCHASE_INTENT",
+  "OBJECTION",
+  "QUESTION",
+  "RESEARCHING",
+  "OFF_TOPIC",
+]);
+// Curated allowlist for buyingSignals — keeps the field usable as a tag
+// facet. Unknown tags from the AI are dropped rather than failing the
+// scoring pass.
+const KNOWN_SIGNALS = new Set([
+  "budget_mentioned",
+  "urgency_expressed",
+  "decision_maker_confirmed",
+  "comparison_shopping",
+  "payment_method_asked",
+  "demo_requested",
+  "team_size_mentioned",
+  "integration_asked",
+  "contract_terms_asked",
+]);
 
 // How many recent messages we hand the AI for context. 30 is a balance
 // between coverage and token cost; for v1 we don't summarize older history.
@@ -82,13 +105,30 @@ export async function scoreLead(tenantId, leadId, actorId) {
   const memory = parsed.memory && typeof parsed.memory === "object" ? parsed.memory : {};
   const reasoning = typeof parsed.reasoning === "string" ? parsed.reasoning.slice(0, 500) : "";
 
+  // M11.B2: intent + buying signals. Both are optional in the AI response
+  // (older prompts didn't emit them) — default to safe values rather than
+  // failing the scoring pass.
+  const rawIntent = String(parsed.intent || "").toUpperCase();
+  const intent = INTENT_VALUES.has(rawIntent) ? rawIntent : null;
+  const buyingSignals = Array.isArray(parsed.buyingSignals)
+    ? parsed.buyingSignals
+        .map((s) => String(s || "").toLowerCase())
+        .filter((s) => KNOWN_SIGNALS.has(s))
+    : [];
+
   // Merge memory: existing keys are preserved unless the AI explicitly
   // overwrites them. AI is told to carry-forward known facts, so this is
-  // belt-and-braces.
-  const mergedMemory = { ...(lead.memory?.memory || {}), ...memory };
+  // belt-and-braces. Intent + signals are stamped on top so downstream
+  // automations + the UI can read them without re-running the AI.
+  const mergedMemory = {
+    ...(lead.memory?.memory || {}),
+    ...memory,
+    ...(intent ? { last_intent: intent } : {}),
+    ...(buyingSignals.length ? { buying_signals: buyingSignals } : {}),
+  };
 
   // Persist score + memory + activity in one transaction.
-  const [updatedLead] = await prisma.$transaction([
+  await prisma.$transaction([
     prisma.lead.update({
       where: { id: leadId },
       data: { score, aiScore },
@@ -110,14 +150,97 @@ export async function scoreLead(tenantId, leadId, actorId) {
           model: provider.chatModel,
           score,
           aiScore,
+          intent,
+          buyingSignals,
           reasoning,
         },
       },
     }),
   ]);
 
-  log.info("scored lead", { leadId, score, aiScore, provider: provider.name });
-  return { score, aiScore, reasoning, memory: mergedMemory, model: provider.chatModel };
+  log.info("scored lead", { leadId, score, aiScore, intent, provider: provider.name });
+
+  // M11.B2 AI-to-quote bridge. When the AI flags a HOT lead with explicit
+  // PURCHASE_INTENT, draft a quotation and route it to the manual review
+  // queue. Failures here MUST NOT fail the score endpoint — operators
+  // would lose visibility on intent if scoring kept 500'ing.
+  let autoDraftedQuotationId = null;
+  if (score === "HOT" && intent === "PURCHASE_INTENT") {
+    try {
+      autoDraftedQuotationId = await maybeAutoDraftQuote({
+        tenantId,
+        leadId,
+        memory: mergedMemory,
+        buyingSignals,
+      });
+    } catch (err) {
+      // Best-effort. Log + carry on; the operator still sees the HOT score.
+      log.warn("auto-draft quote failed", { leadId, err: err.message });
+    }
+  }
+
+  return {
+    score,
+    aiScore,
+    intent,
+    buyingSignals,
+    reasoning,
+    memory: mergedMemory,
+    model: provider.chatModel,
+    autoDraftedQuotationId,
+  };
+}
+
+// ─── AI-to-quote bridge ─────────────────────────────────────────────
+// Idempotent: skips if any DRAFT or SENT quote already exists for the
+// lead (operator may be mid-flight). When invoked, creates a placeholder
+// quote (qty=1, unit=0) that the operator fills in via the editor; the
+// review handoff is via the ManualQueueItem with reason AI_QUOTATION_REVIEW.
+
+async function maybeAutoDraftQuote({ tenantId, leadId, memory, buyingSignals }) {
+  const existing = await prisma.quotation.findFirst({
+    where: {
+      tenantId,
+      leadId,
+      deletedAt: null,
+      status: { in: ["DRAFT", "SENT"] },
+    },
+    select: { id: true },
+  });
+  if (existing) {
+    log.info("auto-draft skipped — existing quote", { leadId, quotationId: existing.id });
+    return null;
+  }
+
+  // Late import to avoid a circular dep: quotation.service imports from
+  // scoring is unlikely, but we want lazy resolution so module load order
+  // in workers doesn't matter.
+  const { draftFromAiSuggestion } = await import("../quotations/quotation.service.js");
+  const interestedProduct = String(memory?.interested_product || "").trim();
+  const description = interestedProduct
+    ? `${interestedProduct} (auto-drafted — review pricing)`
+    : "AI-detected purchase intent — review and add product lines";
+
+  const quote = await draftFromAiSuggestion(tenantId, {
+    leadId,
+    items: [
+      {
+        description,
+        qty: 1,
+        unitPrice: 0,
+        taxRatePct: 0,
+      },
+    ],
+    notes: [
+      "Auto-drafted by AI on PURCHASE_INTENT detection.",
+      buyingSignals.length ? `Signals: ${buyingSignals.join(", ")}.` : "",
+      memory?.budget ? `Customer-mentioned budget: ${memory.budget}.` : "",
+    ]
+      .filter(Boolean)
+      .join(" "),
+  });
+  log.info("auto-drafted quote", { leadId, quotationId: quote.id, number: quote.number });
+  return quote.id;
 }
 
 // ─── Suggested replies ──────────────────────────────────────────────

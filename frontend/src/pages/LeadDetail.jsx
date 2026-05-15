@@ -139,8 +139,16 @@ export default function LeadDetail() {
     setBusy(true);
     try {
       const { data } = await api.post(`/leads/${leadId}/score`);
-      toast.success(`Scored: ${data.score} (${(data.aiScore * 100).toFixed(0)}%)`);
+      const parts = [`${data.score} (${(data.aiScore * 100).toFixed(0)}%)`];
+      if (data.intent) parts.push(`intent: ${data.intent}`);
+      toast.success(`Scored: ${parts.join(" · ")}`);
+      // M11.B2: surface auto-draft separately so it's not lost in the
+      // success toast. The badge in the Revenue panel updates after load().
+      if (data.autoDraftedQuotationId) {
+        toast.success("Purchase intent detected — draft quote created for review");
+      }
       await load();
+      await loadRevenue();
     } catch (err) {
       toast.error(err.response?.data?.error?.message || "Scoring failed");
     } finally {
@@ -307,18 +315,66 @@ export default function LeadDetail() {
                   </p>
                 )}
 
+                {/* M11.B2: focused intent + buying signals panel. Pulled
+                    out of the generic AI-memory dump because these drive
+                    the auto-draft-quote behavior — operators need to see
+                    them at a glance. */}
+                {lead.memory?.memory?.last_intent && (
+                  <div className="mt-3">
+                    <h3 className="mb-1 text-xs font-medium">Buying intent</h3>
+                    <div className="rounded-md border bg-muted/40 p-2">
+                      <div className="flex items-center gap-2">
+                        <span
+                          className={cn(
+                            "rounded-full px-2 py-0.5 text-[11px] font-medium",
+                            lead.memory.memory.last_intent === "PURCHASE_INTENT" &&
+                              "bg-success/15 text-success",
+                            lead.memory.memory.last_intent === "OBJECTION" &&
+                              "bg-warning/15 text-warning",
+                            lead.memory.memory.last_intent === "QUESTION" &&
+                              "bg-info/15 text-info",
+                            lead.memory.memory.last_intent === "RESEARCHING" &&
+                              "bg-muted text-muted-foreground",
+                            lead.memory.memory.last_intent === "OFF_TOPIC" &&
+                              "bg-muted text-muted-foreground",
+                          )}
+                        >
+                          {lead.memory.memory.last_intent}
+                        </span>
+                      </div>
+                      {Array.isArray(lead.memory.memory.buying_signals) &&
+                        lead.memory.memory.buying_signals.length > 0 && (
+                          <div className="mt-1.5 flex flex-wrap gap-1">
+                            {lead.memory.memory.buying_signals.map((s) => (
+                              <span
+                                key={s}
+                                className="rounded-md bg-card px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground"
+                              >
+                                {s}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                    </div>
+                  </div>
+                )}
+
                 {lead.memory?.memory && Object.keys(lead.memory.memory).length > 0 && (
                   <div className="mt-3">
                     <h3 className="mb-1 flex items-center gap-1 text-xs font-medium">
                       <Brain className="h-3 w-3" /> AI memory
                     </h3>
                     <dl className="space-y-0.5 rounded-md border bg-muted/40 p-2 text-[11px]">
-                      {Object.entries(lead.memory.memory).map(([k, v]) => (
-                        <div key={k} className="flex gap-2">
-                          <dt className="min-w-[110px] truncate text-muted-foreground">{k}</dt>
-                          <dd className="font-mono">{String(v)}</dd>
-                        </div>
-                      ))}
+                      {Object.entries(lead.memory.memory)
+                        .filter(([k]) => k !== "last_intent" && k !== "buying_signals")
+                        .map(([k, v]) => (
+                          <div key={k} className="flex gap-2">
+                            <dt className="min-w-[110px] truncate text-muted-foreground">{k}</dt>
+                            <dd className="font-mono">
+                              {typeof v === "object" ? JSON.stringify(v) : String(v)}
+                            </dd>
+                          </div>
+                        ))}
                     </dl>
                   </div>
                 )}

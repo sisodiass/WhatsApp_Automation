@@ -202,6 +202,15 @@ const STUB_PROVIDER = {
         text: JSON.stringify({
           score: "HOT",
           aiScore: 0.87,
+          // M11.B2: stub emits intent + buyingSignals so tests can drive
+          // the AI-to-quote bridge without a real model.
+          intent: "PURCHASE_INTENT",
+          buyingSignals: [
+            "budget_mentioned",
+            "urgency_expressed",
+            "decision_maker_confirmed",
+            "demo_requested",
+          ],
           reasoning: "Has budget, urgency, and explicit demo ask.",
           memory: {
             budget: "50000 INR/mo",
