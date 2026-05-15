@@ -17,6 +17,17 @@ const GROUPS = [
   { id: "wa", label: "WhatsApp", help: "Send delays, outbound rate limit, warmup mode." },
   { id: "manual_queue", label: "Manual Queue", help: "SLA threshold for queue UI highlighting." },
   { id: "microsoft", label: "Microsoft Teams", help: "Graph API credentials for demo booking." },
+  {
+    id: "payments",
+    label: "Payments",
+    help: "Default provider + Razorpay/Stripe credentials. Webhook secrets are encrypted at rest.",
+  },
+  {
+    id: "quotations",
+    label: "Quotations",
+    help: "Numbering, default validity, tax, approval threshold, default terms.",
+  },
+  { id: "invoices", label: "Invoices", help: "Invoice numbering." },
 ];
 
 // Friendly labels + tooltip help text per key.
@@ -125,10 +136,81 @@ const META = {
     label: "Microsoft organizer user ID",
     help: "GUID of the Microsoft user who hosts the Teams meetings created by demo-booking. Must have OnlineMeetings.ReadWrite.All app permission.",
   },
+  // M11 — Payments
+  "payments.default_provider": {
+    label: "Default payment provider",
+    help: "Which gateway createPaymentLink uses by default. STUB is the dev provider — flip to RAZORPAY or STRIPE once credentials are saved below.",
+  },
+  "payments.currency_default": {
+    label: "Default currency",
+    help: "ISO 4217 code used when a quotation or payment link doesn't specify one (e.g. INR, USD).",
+  },
+  "payments.link_expiry_hours": {
+    label: "Link expiry (hours)",
+    help: "Default validity for new payment links. 0 disables expiry.",
+  },
+  "payments.razorpay.key_id": {
+    label: "Razorpay key ID",
+    help: "Encrypted at rest. From Razorpay dashboard → Settings → API Keys.",
+  },
+  "payments.razorpay.key_secret": {
+    label: "Razorpay key secret",
+    help: "Encrypted at rest. Pair with the key ID above.",
+  },
+  "payments.razorpay.webhook_secret": {
+    label: "Razorpay webhook secret",
+    help: "Encrypted. Set on the Razorpay webhook configured to POST /api/webhooks/payments/razorpay.",
+  },
+  "payments.stripe.publishable_key": {
+    label: "Stripe publishable key",
+    help: "From Stripe dashboard. Although public, we store it encrypted to keep secrets handling uniform.",
+  },
+  "payments.stripe.secret_key": {
+    label: "Stripe secret key",
+    help: "Encrypted at rest. From Stripe dashboard → Developers → API Keys.",
+  },
+  "payments.stripe.webhook_secret": {
+    label: "Stripe webhook secret",
+    help: "Encrypted. Set on the Stripe webhook endpoint configured for POST /api/webhooks/payments/stripe.",
+  },
+  // M11 — Quotations
+  "quotations.number_prefix": {
+    label: "Quote number prefix",
+    help: "Used in number_format. Default 'QTN'.",
+  },
+  "quotations.number_format": {
+    label: "Quote number format",
+    help: "Placeholders: {prefix}, {yyyy}, {seq:N}. Example: 'QTN-{yyyy}-{seq:06}'.",
+  },
+  "quotations.default_validity_days": {
+    label: "Default validity (days)",
+    help: "New quotes default to today + this many days as valid_until.",
+  },
+  "quotations.tax_rate_default": {
+    label: "Default tax rate %",
+    help: "Suggested tax rate when a line item has no rate from the linked Product.",
+  },
+  "quotations.approval_threshold_amount": {
+    label: "Approval threshold",
+    help: "Quotations with grandTotal at or above this amount require an APPROVED QuotationApproval row before /send.",
+  },
+  "quotations.terms_default": {
+    label: "Default terms",
+    help: "Pre-fills the Terms field on new quotes; operators can override per quote.",
+  },
+  "invoices.number_prefix": {
+    label: "Invoice number prefix",
+    help: "Used in number_format. Default 'INV'.",
+  },
+  "invoices.number_format": {
+    label: "Invoice number format",
+    help: "Placeholders: {prefix}, {yyyy}, {seq:N}.",
+  },
 };
 
 const ENUMS = {
   "ai.provider": ["openai", "gemini"],
+  "payments.default_provider": ["STUB", "RAZORPAY", "STRIPE"],
 };
 
 export default function Settings() {

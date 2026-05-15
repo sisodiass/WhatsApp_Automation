@@ -177,12 +177,25 @@ async function scheduleRepeats() {
       removeOnFail: { count: 50 },
     },
   );
+  // M11 quotation-expiry-sweep: every 15 minutes. Flips SENT quotations
+  // past valid_until to EXPIRED and writes a lead activity.
+  await q.add(
+    "quotation-expiry-sweep",
+    {},
+    {
+      repeat: { every: 15 * 60_000 },
+      jobId: "quotation-expiry-sweep",
+      removeOnComplete: { count: 50 },
+      removeOnFail: { count: 50 },
+    },
+  );
   log.info("repeating jobs scheduled", {
     jobs: [
       "watchdog (30s)",
       "backup (cron 0 3 * * *)",
       "bulk-drip (60s)",
       "followup-tick (5m)",
+      "quotation-expiry-sweep (15m)",
     ],
   });
 }

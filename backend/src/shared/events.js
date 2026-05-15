@@ -32,6 +32,10 @@ export const Events = Object.freeze({
   // { leadId, tenantId, ruleId, messageId }. M7 workflow automation
   // subscribes here.
   LEAD_FOLLOWUP_SENT: "lead.followup.sent",
+  // M11 revenue events. Automation subscriber maps these to the
+  // QUOTATION_ACCEPTED / PAYMENT_RECEIVED triggers.
+  QUOTATION_ACCEPTED: "quotation.accepted",
+  PAYMENT_RECEIVED: "payment.received",
 });
 
 export function on(event, listener) {

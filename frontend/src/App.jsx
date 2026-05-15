@@ -24,6 +24,13 @@ import Health from "./pages/Health.jsx";
 import Audit from "./pages/Audit.jsx";
 import Analytics from "./pages/Analytics.jsx";
 import Help from "./pages/Help.jsx";
+import Products from "./pages/Products.jsx";
+import Quotations from "./pages/Quotations.jsx";
+import QuotationDetail from "./pages/QuotationDetail.jsx";
+import QuotationEditor from "./pages/QuotationEditor.jsx";
+import Payments from "./pages/Payments.jsx";
+import Invoices from "./pages/Invoices.jsx";
+import PricingRules from "./pages/PricingRules.jsx";
 import ProtectedRoute from "./components/ProtectedRoute.jsx";
 import AppShell from "./components/AppShell.jsx";
 import { useThemeStore } from "./stores/themeStore.js";
@@ -91,6 +98,23 @@ export default function App() {
         <Route path="/analytics" element={<Analytics />} />
         <Route path="/chats/:chatId" element={<Chat />} />
         <Route path="/help" element={<Help />} />
+
+        {/* M11 — Revenue */}
+        <Route path="/products" element={<Products />} />
+        <Route path="/quotations" element={<Quotations />} />
+        <Route path="/quotations/new" element={<QuotationEditor />} />
+        <Route path="/quotations/:id" element={<QuotationDetail />} />
+        <Route path="/quotations/:id/edit" element={<QuotationEditor />} />
+        <Route path="/payments" element={<Payments />} />
+        <Route path="/invoices" element={<Invoices />} />
+        <Route
+          path="/pricing-rules"
+          element={
+            <ProtectedRoute roles={["SUPER_ADMIN", "ADMIN"]}>
+              <PricingRules />
+            </ProtectedRoute>
+          }
+        />
 
         {/* Admin-only routes use ProtectedRoute again to gate by role. */}
         <Route
