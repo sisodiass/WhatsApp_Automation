@@ -20,6 +20,10 @@ const WRITABLE = new Set([
   "ai.gemini.api_key",
   "ai.gemini.chat_model",
   "ai.gemini.embedding_model",
+  // M11.B: Anthropic Claude (chat-only) + embedding provider override
+  "ai.claude.api_key",
+  "ai.claude.chat_model",
+  "ai.embedding_provider",
   // Session
   "session.inactivity_reset_days",
   "session.resume_after_hours",

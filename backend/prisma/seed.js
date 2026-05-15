@@ -62,6 +62,14 @@ async function main() {
     { key: "ai.openai.embedding_model", value: "text-embedding-3-small" },
     { key: "ai.gemini.chat_model", value: "gemini-2.0-flash" },
     { key: "ai.gemini.embedding_model", value: "gemini-embedding-001" },
+    // M11.B: Anthropic Claude as a chat-only provider. Embeddings fall
+    // back to ai.embedding_provider (default openai) since Claude has no
+    // first-party embedding API.
+    { key: "ai.claude.api_key", value: "", encrypted: true },
+    { key: "ai.claude.chat_model", value: "claude-3-5-sonnet-latest" },
+    // Which provider supplies embeddings. Only used when ai.provider is
+    // "claude". Must be openai or gemini.
+    { key: "ai.embedding_provider", value: "openai" },
 
     { key: "ai.global_enabled", value: true },
     { key: "ai.max_replies_per_session", value: 10 },

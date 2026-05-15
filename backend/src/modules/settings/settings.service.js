@@ -26,6 +26,7 @@ import { invalidatePaymentsProvider } from "../payments/providers/index.js";
 const SECRET_KEYS = new Set([
   "ai.openai.api_key",
   "ai.gemini.api_key",
+  "ai.claude.api_key",
   "microsoft.client_secret",
 ]);
 
@@ -36,12 +37,15 @@ const SECRET_SUFFIX_RE = /\.(api_key|secret|password|credentials?)$/;
 // caches keyed on settings.
 const PROVIDER_KEYS = new Set([
   "ai.provider",
+  "ai.embedding_provider",
   "ai.openai.api_key",
   "ai.openai.chat_model",
   "ai.openai.embedding_model",
   "ai.gemini.api_key",
   "ai.gemini.chat_model",
   "ai.gemini.embedding_model",
+  "ai.claude.api_key",
+  "ai.claude.chat_model",
 ]);
 
 export function isSecretKey(key) {
