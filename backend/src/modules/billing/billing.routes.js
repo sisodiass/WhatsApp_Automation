@@ -27,6 +27,7 @@ import {
   listActivePlans,
   setPlanStripePriceId,
 } from "./billing.service.js";
+import { getCurrentUsage } from "./quota.service.js";
 import { getBillingProvider } from "./providers/index.js";
 
 export const billingPublicRouter = Router();
@@ -56,6 +57,17 @@ billingPublicRouter.get(
         hasStripePrice: Boolean(p.stripePriceId),
       })),
     });
+  }),
+);
+
+// M11.C3c: current-period usage vs plan limits. Powers the usage card
+// on /billing. Includes the plan slug so the UI can show "5/100 on Free"
+// without a second roundtrip.
+billingRouter.get(
+  "/usage",
+  asyncHandler(async (req, res) => {
+    const usage = await getCurrentUsage(req.auth.tenantId);
+    res.json(usage);
   }),
 );
 

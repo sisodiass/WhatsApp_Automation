@@ -18,6 +18,11 @@ export const BadRequest = (msg = "bad request", details) =>
   new AppError(msg, 400, "bad_request", details);
 export const Conflict = (msg = "conflict", details) =>
   new AppError(msg, 409, "conflict", details);
+// M11.C3c — plan quota exceeded. 402 Payment Required is the closest
+// HTTP semantic; the UI uses the `details.quota` field to render an
+// "Upgrade your plan" prompt with the specific limit that's full.
+export const QuotaExceeded = (msg = "plan quota exceeded", details) =>
+  new AppError(msg, 402, "quota_exceeded", details);
 
 // Express requires the 4-arg signature so it recognises this as an error middleware.
 // eslint-disable-next-line no-unused-vars

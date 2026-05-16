@@ -14,6 +14,7 @@ import { generateAnswer, isFallbackReply } from "../../modules/ai/generation.ser
 import { renderTemplate } from "../../modules/templates/template.service.js";
 import { sendFallbackMessage } from "../../modules/ai/fallback.service.js";
 import { enqueueOutbound } from "../../modules/queue/producers.js";
+import { isWithinQuota } from "../../modules/billing/quota.service.js";
 
 const log = child("q:kb-search");
 
@@ -68,6 +69,30 @@ export async function processKbSearchJob(job) {
 }
 
 async function runPipeline({ msg, session, tenantId, kbGroupIds, threshold, timeoutMs, messageId }) {
+  // 0. M11.C3c plan-quota gate. Two soft checks before any AI work:
+  //    ai_replies_per_month  — the bill-protecting cap on AI calls
+  //    messages_per_month     — the broader outbound cap
+  // Both gracefully degrade to FALLBACK (no AI call, no AI message
+  // row, no provider token spend). Treats the over-quota tenant
+  // identically to low-confidence — keeps them on the AI track but
+  // doesn't burn money. Mode stays AI until the M11.B3 cap escalates.
+  const aiOk = await isWithinQuota(tenantId, "ai_replies_per_month");
+  const msgOk = await isWithinQuota(tenantId, "messages_per_month");
+  if (!aiOk || !msgOk) {
+    log.info("over plan quota; sending fallback", {
+      messageId,
+      tenantId,
+      aiOk,
+      msgOk,
+    });
+    return sendFallback({
+      session,
+      tenantId,
+      confidence: 0,
+      reason: aiOk ? "messages_quota_exceeded" : "ai_quota_exceeded",
+    });
+  }
+
   // 1. Retrieve.
   const results = await hybridSearch({
     tenantId,
