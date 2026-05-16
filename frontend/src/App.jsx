@@ -35,6 +35,7 @@ import QuotationEditor from "./pages/QuotationEditor.jsx";
 import Payments from "./pages/Payments.jsx";
 import Invoices from "./pages/Invoices.jsx";
 import PricingRules from "./pages/PricingRules.jsx";
+import Billing from "./pages/Billing.jsx";
 import ProtectedRoute from "./components/ProtectedRoute.jsx";
 import AppShell from "./components/AppShell.jsx";
 import { useThemeStore } from "./stores/themeStore.js";
@@ -122,6 +123,17 @@ export default function App() {
           element={
             <ProtectedRoute roles={["SUPER_ADMIN", "ADMIN"]}>
               <PricingRules />
+            </ProtectedRoute>
+          }
+        />
+
+        {/* M11.C3a — Billing (admin-only — only the SUPER_ADMIN should
+            see subscription + plan details). */}
+        <Route
+          path="/billing"
+          element={
+            <ProtectedRoute roles={["SUPER_ADMIN", "ADMIN"]}>
+              <Billing />
             </ProtectedRoute>
           }
         />

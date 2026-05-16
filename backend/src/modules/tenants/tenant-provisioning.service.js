@@ -19,6 +19,7 @@
 
 import { prisma } from "../../shared/prisma.js";
 import { child } from "../../shared/logger.js";
+import { ensureSubscription } from "../billing/billing.service.js";
 
 const log = child("provisioning");
 
@@ -280,6 +281,13 @@ export async function provisionTenant(tenantId, opts = {}) {
       })
       .catch(() => {}); // soft — not worth failing the whole provisioning
   }
+
+  // M11.C3a: ensure the tenant has a Subscription. Default is the
+  // "free" plan; the seed (default-tenant) passes "operator" so the
+  // deploy admin gets unlimited limits. Idempotent — only creates
+  // when missing.
+  const subscriptionSlug = opts.subscriptionSlug || "free";
+  await ensureSubscription(tenantId, { defaultPlanSlug: subscriptionSlug });
 
   // 5. Internal test campaign (operator-only, opt-in via flag).
   if (opts.includeTestCampaign) {

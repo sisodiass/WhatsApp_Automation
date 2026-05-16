@@ -225,6 +225,16 @@ enum PricingRuleKind {
   TIME_BOUND
 }
 
+// ─── Billing (M11.C3) ────────────────────────────────────────────────
+
+enum SubscriptionStatus {
+  TRIALING       // free-trial window before the first charge
+  ACTIVE         // good standing — free plans live here permanently
+  PAST_DUE       // payment failed, in dunning
+  CANCELLED      // cancelled but still within current period
+  EXPIRED        // period ended without renewal
+}
+
 // ─── Tenant + Users ──────────────────────────────────────────────────
 
 model Tenant {
@@ -260,6 +270,8 @@ model Tenant {
   paymentLinks        PaymentLink[]
   paymentTransactions PaymentTransaction[]
   invoices            Invoice[]
+  // M11.C3 billing
+  subscription        Subscription?
 
   @@map("tenants")
 }
@@ -1465,4 +1477,74 @@ model Invoice {
   @@unique([tenantId, number])
   @@index([tenantId, quotationId])
   @@map("invoices")
+}
+
+// ─── Billing: Plans + Subscriptions (M11.C3) ─────────────────────────
+//
+// Plan: catalog of subscription tiers — global (NOT tenant-scoped), since
+// "Pro" means the same thing for every tenant. Operators can deprecate
+// plans (isActive=false) and create new ones; existing subscriptions
+// keep their old plan until upgraded.
+//
+// Subscription: per-tenant. One subscription per tenant (1:1 enforced via
+// unique tenantId). Lifecycle: TRIALING → ACTIVE → (PAST_DUE → ACTIVE)
+// or → CANCELLED → EXPIRED. The free plan stays ACTIVE forever; paid
+// plans roll over by Stripe webhook (C.3b).
+//
+// limits is a free-form JSON map so adding a new quota (e.g.
+// "ai_replies_per_month") doesn't require a migration — just bump the
+// number on each plan + add an enforcement check at the call site.
+
+model Plan {
+  id               String   @id @default(cuid())
+  slug             String   @unique // "free", "starter", "pro", "enterprise"
+  name             String
+  description      String?
+  monthlyPriceCents Int     @default(0) @map("monthly_price_cents")
+  currency         String   @default("USD") @db.VarChar(3)
+  // Set by C.3b when the plan is wired to Stripe. Nullable so seed +
+  // dev environments work without a Stripe account.
+  stripePriceId    String?  @map("stripe_price_id")
+  // Human-readable bullet points shown on the pricing page (frontend).
+  features         Json     @default("[]")
+  // Quota map. Keys are convention; "null" or absent means "unlimited".
+  //   messages_per_month, contacts_max, ai_replies_per_month,
+  //   automations_max, kb_documents_max, channels_max, seats_max
+  limits           Json     @default("{}")
+  isActive         Boolean  @default(true) @map("is_active")
+  displayOrder     Int      @default(0) @map("display_order")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  subscriptions Subscription[]
+
+  @@index([isActive, displayOrder])
+  @@map("plans")
+}
+
+model Subscription {
+  id                  String             @id @default(cuid())
+  tenantId            String             @unique @map("tenant_id")
+  planId              String             @map("plan_id")
+  status              SubscriptionStatus @default(ACTIVE)
+  // Trial window — null for plans without a trial.
+  trialEndsAt         DateTime?          @map("trial_ends_at")
+  // Billing cycle. For free plans these can be null (no cycle); for
+  // paid plans Stripe sets them via webhook.
+  currentPeriodStart  DateTime?          @map("current_period_start")
+  currentPeriodEnd    DateTime?          @map("current_period_end")
+  // When true, the subscription will not renew at currentPeriodEnd.
+  cancelAtPeriodEnd   Boolean            @default(false) @map("cancel_at_period_end")
+  // Stripe wiring — populated by C.3b once Checkout completes.
+  stripeSubscriptionId String?           @map("stripe_subscription_id")
+  stripeCustomerId     String?           @map("stripe_customer_id")
+  createdAt            DateTime          @default(now()) @map("created_at")
+  updatedAt            DateTime          @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  plan   Plan   @relation(fields: [planId], references: [id])
+
+  @@index([status])
+  @@index([currentPeriodEnd]) // for dunning sweep
+  @@map("subscriptions")
 }

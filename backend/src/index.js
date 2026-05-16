@@ -52,6 +52,7 @@ import { integrationRouter } from "./modules/integrations/integration.routes.js"
 import { publicRouter } from "./modules/public/public.routes.js";
 import { mountBullBoard } from "./modules/admin/queues.routes.js";
 import { waMaintenanceRouter } from "./modules/admin/wa-maintenance.routes.js";
+import { billingPublicRouter, billingRouter } from "./modules/billing/billing.routes.js";
 // M11 revenue: products, pricing rules, quotations, payments, invoices.
 import { productRouter, pricingRuleRouter } from "./modules/products/product.routes.js";
 import { quotationRouter } from "./modules/quotations/quotation.routes.js";
@@ -163,6 +164,10 @@ app.use("/api/pricing-rules", pricingRuleRouter);
 app.use("/api/quotations", quotationRouter);
 app.use("/api/payments", paymentRouter);
 app.use("/api/invoices", invoiceRouter);
+// M11.C3a — billing. /plans is public (used by the pricing page and
+// /signup flow). /subscription is authenticated and tenant-scoped.
+app.use("/api/billing", billingPublicRouter);
+app.use("/api/billing", billingRouter);
 // M10: Channel admin endpoints. Auth-gated; SUPER_ADMIN/ADMIN write.
 app.use("/api/channels", channelRouter);
 // Website-integration admin endpoints (admin-only, JWT-gated). Hosts

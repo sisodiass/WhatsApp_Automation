@@ -80,6 +80,7 @@ const NAV_SECTIONS = [
     label: "System",
     roles: ["SUPER_ADMIN", "ADMIN"],
     items: [
+      { to: "/billing", label: "Billing", icon: CreditCard, roles: ["SUPER_ADMIN", "ADMIN"] },
       { to: "/settings", label: "Settings", icon: SettingsIcon, roles: ["SUPER_ADMIN", "ADMIN"] },
       { to: "/health", label: "Health", icon: Heart },
       { to: "/audit", label: "Audit Log", icon: Activity, roles: ["SUPER_ADMIN", "ADMIN"] },
