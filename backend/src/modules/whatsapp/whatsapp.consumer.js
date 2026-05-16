@@ -59,6 +59,10 @@ export function startWhatsappConsumer() {
             const result = await handleInbound({
               tenantId,
               from: payload.from,
+              // M11.fix: real phone resolved by the worker when the
+              // sender used an @lid identifier. null when WhatsApp
+              // didn't expose one — handleInbound falls back to the JID.
+              contactPhone: payload.contactPhone || null,
               body: payload.body,
               waMessageId: payload.waMessageId,
               displayName: payload.notifyName,

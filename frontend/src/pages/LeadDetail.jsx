@@ -180,7 +180,11 @@ export default function LeadDetail() {
   }
 
   const c = lead.contact;
-  const name = [c?.firstName, c?.lastName].filter(Boolean).join(" ") || c?.mobile || "(no name)";
+  const realMobile = c?.mobile && !c.mobile.endsWith("@lid") ? c.mobile : null;
+  const name =
+    [c?.firstName, c?.lastName].filter(Boolean).join(" ") ||
+    realMobile ||
+    "(no name)";
   const stagesForPipeline = pipelines.find((p) => p.id === lead.pipelineId)?.stages || [];
   const chat = c?.id ? null : null; // chat link comes through lead.contact via the API
 
@@ -206,7 +210,9 @@ export default function LeadDetail() {
               <div className="space-y-2 text-sm">
                 <Row icon={User} label="Name">{name}</Row>
                 <Row icon={Phone} label="Mobile">
-                  <span className="font-mono">{c?.mobile}</span>
+                  <span className="font-mono">
+                    {realMobile || "(WhatsApp private)"}
+                  </span>
                 </Row>
                 {c?.email && <Row icon={Mail} label="Email">{c.email}</Row>}
                 {c?.company && <Row icon={Building} label="Company">{c.company}</Row>}
