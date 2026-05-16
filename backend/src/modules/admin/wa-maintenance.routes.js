@@ -1,6 +1,5 @@
 import { Router } from "express";
 import { asyncHandler } from "../../shared/errors.js";
-import { getDefaultTenantId } from "../../shared/tenant.js";
 import { requireAuth, requireRole } from "../auth/auth.middleware.js";
 import { refreshLidContacts } from "./wa-maintenance.service.js";
 
@@ -15,7 +14,7 @@ waMaintenanceRouter.use(requireRole("SUPER_ADMIN", "ADMIN"));
 waMaintenanceRouter.post(
   "/refresh-lid-contacts",
   asyncHandler(async (req, res) => {
-    const tenantId = await getDefaultTenantId();
+    const tenantId = req.auth.tenantId;
     const limit = Number(req.body?.limit) || undefined;
     const result = await refreshLidContacts(tenantId, { limit });
     res.json(result);

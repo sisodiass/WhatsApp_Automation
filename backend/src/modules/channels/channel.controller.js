@@ -1,6 +1,5 @@
 import { z } from "zod";
 import { asyncHandler, BadRequest, NotFound } from "../../shared/errors.js";
-import { getDefaultTenantId } from "../../shared/tenant.js";
 import {
   deleteChannel,
   getChannelByType,
@@ -17,8 +16,8 @@ const upsertSchema = z.object({
   config: z.record(z.any()).nullable().optional(),
 });
 
-export const list = asyncHandler(async (_req, res) => {
-  const tenantId = await getDefaultTenantId();
+export const list = asyncHandler(async (req, res) => {
+  const tenantId = req.auth.tenantId;
   const items = await listChannels(tenantId);
   // List view always redacts secrets.
   res.json({ items: items.map(redactSecrets) });
@@ -30,7 +29,7 @@ export const list = asyncHandler(async (_req, res) => {
 export const getOne = asyncHandler(async (req, res) => {
   const parsedType = typeSchema.safeParse(req.params.type?.toUpperCase());
   if (!parsedType.success) throw BadRequest("invalid channel type");
-  const tenantId = await getDefaultTenantId();
+  const tenantId = req.auth.tenantId;
   const channel = await getChannelByType(tenantId, parsedType.data);
   if (!channel) throw NotFound("channel not found");
   res.setHeader("Cache-Control", "no-store, max-age=0");
@@ -42,13 +41,13 @@ export const upsert = asyncHandler(async (req, res) => {
   if (!parsedType.success) throw BadRequest("invalid channel type");
   const parsed = upsertSchema.safeParse(req.body || {});
   if (!parsed.success) throw BadRequest("invalid payload", parsed.error.flatten());
-  const tenantId = await getDefaultTenantId();
+  const tenantId = req.auth.tenantId;
   const channel = await upsertChannelByType(tenantId, parsedType.data, parsed.data);
   res.json(channel);
 });
 
 export const remove = asyncHandler(async (req, res) => {
-  const tenantId = await getDefaultTenantId();
+  const tenantId = req.auth.tenantId;
   await deleteChannel(tenantId, req.params.id);
   res.status(204).end();
 });

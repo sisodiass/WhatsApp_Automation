@@ -1,11 +1,10 @@
 import { asyncHandler, BadRequest, NotFound } from "../../shared/errors.js";
 import { prisma } from "../../shared/prisma.js";
-import { getDefaultTenantId } from "../../shared/tenant.js";
 import { config } from "../../config/index.js";
 import { listMessagesForSession, listSessionsForChat } from "./session.service.js";
 
 export const listChats = asyncHandler(async (req, res) => {
-  const tenantId = await getDefaultTenantId();
+  const tenantId = req.auth.tenantId;
   const limit = Math.min(parseInt(req.query.limit || "50", 10), 200);
   const { q, state, mode, tag, campaignId } = req.query;
 
@@ -80,7 +79,7 @@ export const listChats = asyncHandler(async (req, res) => {
 });
 
 export const listSessions = asyncHandler(async (req, res) => {
-  const tenantId = await getDefaultTenantId();
+  const tenantId = req.auth.tenantId;
   const chat = await prisma.chat.findUnique({
     where: { id: req.params.chatId },
     include: { tags: { include: { tag: true } } },
@@ -91,7 +90,7 @@ export const listSessions = asyncHandler(async (req, res) => {
 });
 
 export const getMessages = asyncHandler(async (req, res) => {
-  const tenantId = await getDefaultTenantId();
+  const tenantId = req.auth.tenantId;
   const session = await prisma.chatSession.findUnique({
     where: { id: req.params.sessionId },
     include: { chat: true },

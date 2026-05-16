@@ -1,7 +1,6 @@
 import { z } from "zod";
 import { asyncHandler, BadRequest, NotFound } from "../../shared/errors.js";
 import { prisma } from "../../shared/prisma.js";
-import { getDefaultTenantId } from "../../shared/tenant.js";
 import { interpolate } from "./template.service.js";
 import {
   buildSampleVars,
@@ -24,8 +23,8 @@ const templateSchema = z.object({
   isActive: z.boolean().default(true),
 });
 
-export const list = asyncHandler(async (_req, res) => {
-  const tenantId = await getDefaultTenantId();
+export const list = asyncHandler(async (req, res) => {
+  const tenantId = req.auth.tenantId;
   const items = await prisma.messageTemplate.findMany({
     where: { tenantId },
     orderBy: [{ type: "asc" }, { name: "asc" }],
@@ -36,7 +35,7 @@ export const list = asyncHandler(async (_req, res) => {
 export const create = asyncHandler(async (req, res) => {
   const parsed = templateSchema.safeParse(req.body);
   if (!parsed.success) throw BadRequest("invalid template payload", parsed.error.flatten());
-  const tenantId = await getDefaultTenantId();
+  const tenantId = req.auth.tenantId;
   const t = await prisma.messageTemplate
     .create({ data: { tenantId, ...parsed.data } })
     .catch((err) => {
@@ -49,7 +48,7 @@ export const create = asyncHandler(async (req, res) => {
 export const patch = asyncHandler(async (req, res) => {
   const parsed = templateSchema.partial().safeParse(req.body);
   if (!parsed.success) throw BadRequest("invalid template payload", parsed.error.flatten());
-  const tenantId = await getDefaultTenantId();
+  const tenantId = req.auth.tenantId;
   const existing = await prisma.messageTemplate.findUnique({ where: { id: req.params.id } });
   if (!existing || existing.tenantId !== tenantId) throw NotFound("template not found");
   const t = await prisma.messageTemplate.update({
@@ -60,7 +59,7 @@ export const patch = asyncHandler(async (req, res) => {
 });
 
 export const remove = asyncHandler(async (req, res) => {
-  const tenantId = await getDefaultTenantId();
+  const tenantId = req.auth.tenantId;
   const existing = await prisma.messageTemplate.findUnique({ where: { id: req.params.id } });
   if (!existing || existing.tenantId !== tenantId) throw NotFound("template not found");
   await prisma.messageTemplate.delete({ where: { id: req.params.id } });
@@ -69,7 +68,7 @@ export const remove = asyncHandler(async (req, res) => {
 
 // ─── Variables registry (autocomplete UI) ───────────────────────────
 
-export const variables = asyncHandler(async (_req, res) => {
+export const variables = asyncHandler(async (req, res) => {
   res.json(listVariables());
 });
 
@@ -89,7 +88,7 @@ const previewSchema = z.object({
 export const preview = asyncHandler(async (req, res) => {
   const parsed = previewSchema.safeParse(req.body);
   if (!parsed.success) throw BadRequest("invalid preview payload", parsed.error.flatten());
-  const tenantId = await getDefaultTenantId();
+  const tenantId = req.auth.tenantId;
   const { content, leadId, contactId, extras } = parsed.data;
 
   let vars;

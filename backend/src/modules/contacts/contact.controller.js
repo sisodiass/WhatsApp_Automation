@@ -4,7 +4,6 @@ import crypto from "node:crypto";
 import multer from "multer";
 import { z } from "zod";
 import { asyncHandler, BadRequest } from "../../shared/errors.js";
-import { getDefaultTenantId } from "../../shared/tenant.js";
 import {
   createContact,
   getContact,
@@ -74,7 +73,7 @@ const baseContactSchema = z.object({
 });
 
 export const list = asyncHandler(async (req, res) => {
-  const tenantId = await getDefaultTenantId();
+  const tenantId = req.auth.tenantId;
   const result = await listContacts(tenantId, {
     search: req.query.search?.toString(),
     source: req.query.source?.toString(),
@@ -87,7 +86,7 @@ export const list = asyncHandler(async (req, res) => {
 });
 
 export const getOne = asyncHandler(async (req, res) => {
-  const tenantId = await getDefaultTenantId();
+  const tenantId = req.auth.tenantId;
   const c = await getContact(tenantId, req.params.id);
   res.json(c);
 });
@@ -95,7 +94,7 @@ export const getOne = asyncHandler(async (req, res) => {
 export const create = asyncHandler(async (req, res) => {
   const parsed = baseContactSchema.safeParse(req.body);
   if (!parsed.success) throw BadRequest("invalid contact payload", parsed.error.flatten());
-  const tenantId = await getDefaultTenantId();
+  const tenantId = req.auth.tenantId;
   const c = await createContact(tenantId, parsed.data);
   res.status(201).json(c);
 });
@@ -103,13 +102,13 @@ export const create = asyncHandler(async (req, res) => {
 export const patch = asyncHandler(async (req, res) => {
   const parsed = baseContactSchema.partial().safeParse(req.body);
   if (!parsed.success) throw BadRequest("invalid contact payload", parsed.error.flatten());
-  const tenantId = await getDefaultTenantId();
+  const tenantId = req.auth.tenantId;
   const c = await updateContact(tenantId, req.params.id, parsed.data);
   res.json(c);
 });
 
 export const remove = asyncHandler(async (req, res) => {
-  const tenantId = await getDefaultTenantId();
+  const tenantId = req.auth.tenantId;
   await softDeleteContact(tenantId, req.params.id);
   res.status(204).end();
 });
@@ -135,7 +134,7 @@ const importBodySchema = z.object({
   source: z.string().max(80).optional(),
 });
 
-export const fields = asyncHandler(async (_req, res) => {
+export const fields = asyncHandler(async (req, res) => {
   // Used by the frontend mapping UI to show which fields are mappable.
   res.json({ fields: MAPPABLE_FIELDS });
 });
@@ -147,7 +146,7 @@ export const importFile = asyncHandler(async (req, res) => {
     fs.unlink(req.file.path, () => {});
     throw BadRequest("invalid import payload", parsed.error.flatten());
   }
-  const tenantId = await getDefaultTenantId();
+  const tenantId = req.auth.tenantId;
   try {
     const result = await importContacts({
       tenantId,
@@ -171,7 +170,7 @@ export const exportFile = asyncHandler(async (req, res) => {
   if (format !== "csv" && format !== "xlsx") {
     throw BadRequest("format must be csv or xlsx");
   }
-  const tenantId = await getDefaultTenantId();
+  const tenantId = req.auth.tenantId;
   const rows = await listContactsForExport(tenantId, {
     source: req.query.source?.toString(),
     ownerId: req.query.ownerId?.toString(),
@@ -196,8 +195,8 @@ export const exportFile = asyncHandler(async (req, res) => {
 
 // ─── Sources (master list + rename) ─────────────────────────────────
 
-export const sources = asyncHandler(async (_req, res) => {
-  const tenantId = await getDefaultTenantId();
+export const sources = asyncHandler(async (req, res) => {
+  const tenantId = req.auth.tenantId;
   const items = await listSources(tenantId);
   res.json({ items });
 });
@@ -210,7 +209,7 @@ const renameSchema = z.object({
 export const renameSourceCtrl = asyncHandler(async (req, res) => {
   const parsed = renameSchema.safeParse(req.body);
   if (!parsed.success) throw BadRequest("invalid payload", parsed.error.flatten());
-  const tenantId = await getDefaultTenantId();
+  const tenantId = req.auth.tenantId;
   const result = await renameSource(tenantId, parsed.data.from, parsed.data.to);
   res.json(result);
 });

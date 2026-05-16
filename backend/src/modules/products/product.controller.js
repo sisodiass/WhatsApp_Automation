@@ -1,6 +1,5 @@
 import { z } from "zod";
 import { asyncHandler, BadRequest } from "../../shared/errors.js";
-import { getDefaultTenantId } from "../../shared/tenant.js";
 import {
   createPricingRule,
   createProduct,
@@ -25,7 +24,7 @@ const productSchema = z.object({
 });
 
 export const list = asyncHandler(async (req, res) => {
-  const tenantId = await getDefaultTenantId();
+  const tenantId = req.auth.tenantId;
   const result = await listProducts(tenantId, {
     search: req.query.search?.toString(),
     status: req.query.status?.toString(),
@@ -37,26 +36,26 @@ export const list = asyncHandler(async (req, res) => {
 });
 
 export const getOne = asyncHandler(async (req, res) => {
-  const tenantId = await getDefaultTenantId();
+  const tenantId = req.auth.tenantId;
   res.json(await getProduct(tenantId, req.params.id));
 });
 
 export const create = asyncHandler(async (req, res) => {
   const parsed = productSchema.safeParse(req.body);
   if (!parsed.success) throw BadRequest("invalid product payload", parsed.error.flatten());
-  const tenantId = await getDefaultTenantId();
+  const tenantId = req.auth.tenantId;
   res.status(201).json(await createProduct(tenantId, parsed.data));
 });
 
 export const patch = asyncHandler(async (req, res) => {
   const parsed = productSchema.partial().safeParse(req.body);
   if (!parsed.success) throw BadRequest("invalid product payload", parsed.error.flatten());
-  const tenantId = await getDefaultTenantId();
+  const tenantId = req.auth.tenantId;
   res.json(await updateProduct(tenantId, req.params.id, parsed.data));
 });
 
 export const remove = asyncHandler(async (req, res) => {
-  const tenantId = await getDefaultTenantId();
+  const tenantId = req.auth.tenantId;
   await softDeleteProduct(tenantId, req.params.id);
   res.status(204).end();
 });
@@ -70,27 +69,27 @@ const pricingRuleSchema = z.object({
   active: z.boolean().optional(),
 });
 
-export const listRules = asyncHandler(async (_req, res) => {
-  const tenantId = await getDefaultTenantId();
+export const listRules = asyncHandler(async (req, res) => {
+  const tenantId = req.auth.tenantId;
   res.json({ items: await listPricingRules(tenantId) });
 });
 
 export const createRule = asyncHandler(async (req, res) => {
   const parsed = pricingRuleSchema.safeParse(req.body);
   if (!parsed.success) throw BadRequest("invalid rule payload", parsed.error.flatten());
-  const tenantId = await getDefaultTenantId();
+  const tenantId = req.auth.tenantId;
   res.status(201).json(await createPricingRule(tenantId, parsed.data));
 });
 
 export const patchRule = asyncHandler(async (req, res) => {
   const parsed = pricingRuleSchema.partial().safeParse(req.body);
   if (!parsed.success) throw BadRequest("invalid rule payload", parsed.error.flatten());
-  const tenantId = await getDefaultTenantId();
+  const tenantId = req.auth.tenantId;
   res.json(await updatePricingRule(tenantId, req.params.id, parsed.data));
 });
 
 export const removeRule = asyncHandler(async (req, res) => {
-  const tenantId = await getDefaultTenantId();
+  const tenantId = req.auth.tenantId;
   await deletePricingRule(tenantId, req.params.id);
   res.status(204).end();
 });

@@ -1,13 +1,12 @@
 import { asyncHandler } from "../../shared/errors.js";
-import { getDefaultTenantId } from "../../shared/tenant.js";
 import { prisma } from "../../shared/prisma.js";
 import { getSettings } from "../settings/settings.service.js";
 import { getProvider, listProviders } from "./providers/index.js";
 
 // GET /api/ai/status — current provider + KB coverage breakdown.
 // Cheap (DB only); safe to call from the dashboard pill on a polite cadence.
-export const status = asyncHandler(async (_req, res) => {
-  const tenantId = await getDefaultTenantId();
+export const status = asyncHandler(async (req, res) => {
+  const tenantId = req.auth.tenantId;
   const cfg = await getSettings(tenantId, [
     "ai.provider",
     "ai.openai.chat_model",
@@ -85,7 +84,7 @@ export const status = asyncHandler(async (_req, res) => {
 
 // GET /api/ai/health — runs the active provider's healthCheck (1 embed +
 // 1 cheap chat call). Slow; do not poll on a schedule.
-export const health = asyncHandler(async (_req, res) => {
+export const health = asyncHandler(async (req, res) => {
   const provider = await getProvider();
   const result = await provider.healthCheck();
   res.status(result.ok ? 200 : 503).json(result);

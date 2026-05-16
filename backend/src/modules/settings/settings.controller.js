@@ -1,6 +1,5 @@
 import { z } from "zod";
 import { asyncHandler, BadRequest } from "../../shared/errors.js";
-import { getDefaultTenantId } from "../../shared/tenant.js";
 import { prisma } from "../../shared/prisma.js";
 import { getSettings, isSecretKey, listAuditLog, setSetting } from "./settings.service.js";
 
@@ -80,8 +79,8 @@ const WRITABLE = new Set([
 
 const valueSchema = z.object({ value: z.any() });
 
-export const getAll = asyncHandler(async (_req, res) => {
-  const tenantId = await getDefaultTenantId();
+export const getAll = asyncHandler(async (req, res) => {
+  const tenantId = req.auth.tenantId;
   const rows = await prisma.setting.findMany({
     where: { tenantId },
     orderBy: { key: "asc" },
@@ -101,7 +100,7 @@ export const getAll = asyncHandler(async (_req, res) => {
 });
 
 export const getByKeys = asyncHandler(async (req, res) => {
-  const tenantId = await getDefaultTenantId();
+  const tenantId = req.auth.tenantId;
   const keys = String(req.query.keys || "")
     .split(",")
     .map((k) => k.trim())
@@ -121,7 +120,7 @@ export const setOne = asyncHandler(async (req, res) => {
   if (!WRITABLE.has(key)) throw BadRequest(`setting "${key}" is not writable via this endpoint`);
   const parsed = valueSchema.safeParse(req.body);
   if (!parsed.success) throw BadRequest("invalid payload", parsed.error.flatten());
-  const tenantId = await getDefaultTenantId();
+  const tenantId = req.auth.tenantId;
   const row = await setSetting({
     tenantId,
     key,
@@ -137,7 +136,7 @@ export const setOne = asyncHandler(async (req, res) => {
 });
 
 export const audit = asyncHandler(async (req, res) => {
-  const tenantId = await getDefaultTenantId();
+  const tenantId = req.auth.tenantId;
   const limit = Math.min(parseInt(req.query.limit || "100", 10), 500);
   const items = await listAuditLog(tenantId, { key: req.query.key, limit });
   res.json({ items });

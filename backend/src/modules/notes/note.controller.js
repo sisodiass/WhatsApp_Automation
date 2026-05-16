@@ -1,12 +1,11 @@
 import { z } from "zod";
 import { asyncHandler, BadRequest } from "../../shared/errors.js";
-import { getDefaultTenantId } from "../../shared/tenant.js";
 import { createNote, deleteNote, listNotes } from "./note.service.js";
 
 const noteSchema = z.object({ body: z.string().min(1).max(4000) });
 
 export const list = asyncHandler(async (req, res) => {
-  const tenantId = await getDefaultTenantId();
+  const tenantId = req.auth.tenantId;
   const items = await listNotes(tenantId, req.params.chatId);
   res.json({ items });
 });
@@ -14,7 +13,7 @@ export const list = asyncHandler(async (req, res) => {
 export const create = asyncHandler(async (req, res) => {
   const parsed = noteSchema.safeParse(req.body);
   if (!parsed.success) throw BadRequest("invalid note payload", parsed.error.flatten());
-  const tenantId = await getDefaultTenantId();
+  const tenantId = req.auth.tenantId;
   const note = await createNote({
     tenantId,
     chatId: req.params.chatId,
@@ -25,7 +24,7 @@ export const create = asyncHandler(async (req, res) => {
 });
 
 export const remove = asyncHandler(async (req, res) => {
-  const tenantId = await getDefaultTenantId();
+  const tenantId = req.auth.tenantId;
   await deleteNote({
     tenantId,
     noteId: req.params.id,
