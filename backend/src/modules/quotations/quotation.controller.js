@@ -1,7 +1,6 @@
 import fs from "node:fs";
 import { z } from "zod";
 import { asyncHandler, BadRequest, NotFound } from "../../shared/errors.js";
-import { getDefaultTenantId } from "../../shared/tenant.js";
 import {
   acceptQuotation,
   createQuotation,
@@ -50,7 +49,7 @@ const updateSchema = z.object({
 });
 
 export const list = asyncHandler(async (req, res) => {
-  const tenantId = await getDefaultTenantId();
+  const tenantId = req.auth.tenantId;
   const result = await listQuotations(tenantId, {
     search: req.query.search?.toString(),
     status: req.query.status?.toString(),
@@ -63,47 +62,47 @@ export const list = asyncHandler(async (req, res) => {
 });
 
 export const getOne = asyncHandler(async (req, res) => {
-  const tenantId = await getDefaultTenantId();
+  const tenantId = req.auth.tenantId;
   res.json(await getQuotation(tenantId, req.params.id));
 });
 
 export const create = asyncHandler(async (req, res) => {
   const parsed = createSchema.safeParse(req.body);
   if (!parsed.success) throw BadRequest("invalid quotation payload", parsed.error.flatten());
-  const tenantId = await getDefaultTenantId();
+  const tenantId = req.auth.tenantId;
   res.status(201).json(await createQuotation(tenantId, parsed.data, req.user?.id));
 });
 
 export const patch = asyncHandler(async (req, res) => {
   const parsed = updateSchema.safeParse(req.body);
   if (!parsed.success) throw BadRequest("invalid quotation payload", parsed.error.flatten());
-  const tenantId = await getDefaultTenantId();
+  const tenantId = req.auth.tenantId;
   res.json(await updateQuotation(tenantId, req.params.id, parsed.data));
 });
 
 export const remove = asyncHandler(async (req, res) => {
-  const tenantId = await getDefaultTenantId();
+  const tenantId = req.auth.tenantId;
   await softDeleteQuotation(tenantId, req.params.id);
   res.status(204).end();
 });
 
 export const send = asyncHandler(async (req, res) => {
-  const tenantId = await getDefaultTenantId();
+  const tenantId = req.auth.tenantId;
   res.json(await sendQuotation(tenantId, req.params.id, req.user?.id));
 });
 
 export const accept = asyncHandler(async (req, res) => {
-  const tenantId = await getDefaultTenantId();
+  const tenantId = req.auth.tenantId;
   res.json(await acceptQuotation(tenantId, req.params.id, req.user?.id));
 });
 
 export const reject = asyncHandler(async (req, res) => {
-  const tenantId = await getDefaultTenantId();
+  const tenantId = req.auth.tenantId;
   res.json(await rejectQuotation(tenantId, req.params.id));
 });
 
 export const revise = asyncHandler(async (req, res) => {
-  const tenantId = await getDefaultTenantId();
+  const tenantId = req.auth.tenantId;
   res.status(201).json(await reviseQuotation(tenantId, req.params.id, req.user?.id));
 });
 
@@ -113,14 +112,14 @@ const approvalSchema = z.object({
 });
 
 export const requestApprovalCtrl = asyncHandler(async (req, res) => {
-  const tenantId = await getDefaultTenantId();
+  const tenantId = req.auth.tenantId;
   res.status(201).json(await requestApproval(tenantId, req.params.id, req.user?.id));
 });
 
 export const decideApprovalCtrl = asyncHandler(async (req, res) => {
   const parsed = approvalSchema.safeParse(req.body);
   if (!parsed.success) throw BadRequest("invalid approval payload", parsed.error.flatten());
-  const tenantId = await getDefaultTenantId();
+  const tenantId = req.auth.tenantId;
   res.json(
     await decideApproval(
       tenantId,
@@ -133,7 +132,7 @@ export const decideApprovalCtrl = asyncHandler(async (req, res) => {
 });
 
 export const pdfCtrl = asyncHandler(async (req, res) => {
-  const tenantId = await getDefaultTenantId();
+  const tenantId = req.auth.tenantId;
   // Make sure the quote exists for this tenant.
   await getQuotation(tenantId, req.params.id);
   let pdfPath = getQuotationPdfPath(tenantId, req.params.id);
@@ -169,6 +168,6 @@ const aiDraftSchema = z.object({
 export const aiDraft = asyncHandler(async (req, res) => {
   const parsed = aiDraftSchema.safeParse(req.body);
   if (!parsed.success) throw BadRequest("invalid AI-draft payload", parsed.error.flatten());
-  const tenantId = await getDefaultTenantId();
+  const tenantId = req.auth.tenantId;
   res.status(201).json(await draftFromAiSuggestion(tenantId, parsed.data));
 });

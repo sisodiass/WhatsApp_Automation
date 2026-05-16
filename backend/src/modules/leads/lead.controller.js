@@ -1,6 +1,5 @@
 import { z } from "zod";
 import { asyncHandler, BadRequest, Forbidden } from "../../shared/errors.js";
-import { getDefaultTenantId } from "../../shared/tenant.js";
 import {
   addLeadNote,
   createLead,
@@ -55,7 +54,7 @@ const updateSchema = z.object({
 });
 
 export const list = asyncHandler(async (req, res) => {
-  const tenantId = await getDefaultTenantId();
+  const tenantId = req.auth.tenantId;
   const scope = agentScopeFilter(req.user);
   const result = await listLeads(tenantId, {
     search: req.query.search?.toString(),
@@ -71,7 +70,7 @@ export const list = asyncHandler(async (req, res) => {
 });
 
 export const board = asyncHandler(async (req, res) => {
-  const tenantId = await getDefaultTenantId();
+  const tenantId = req.auth.tenantId;
   const scope = agentScopeFilter(req.user);
   const data = await getBoard(tenantId, req.params.pipelineId, {
     assignedToId: scope ?? req.query.assignedToId?.toString(),
@@ -81,7 +80,7 @@ export const board = asyncHandler(async (req, res) => {
 });
 
 export const getOne = asyncHandler(async (req, res) => {
-  const tenantId = await getDefaultTenantId();
+  const tenantId = req.auth.tenantId;
   const l = await getLead(tenantId, req.params.id);
   // AGENT may only see leads assigned to them.
   if (agentScopeFilter(req.user) && l.assignedToId !== req.user.id) {
@@ -93,7 +92,7 @@ export const getOne = asyncHandler(async (req, res) => {
 export const create = asyncHandler(async (req, res) => {
   const parsed = createSchema.safeParse(req.body);
   if (!parsed.success) throw BadRequest("invalid lead payload", parsed.error.flatten());
-  const tenantId = await getDefaultTenantId();
+  const tenantId = req.auth.tenantId;
   const l = await createLead(tenantId, parsed.data, req.user?.id);
   res.status(201).json(l);
 });
@@ -101,7 +100,7 @@ export const create = asyncHandler(async (req, res) => {
 export const patch = asyncHandler(async (req, res) => {
   const parsed = updateSchema.safeParse(req.body);
   if (!parsed.success) throw BadRequest("invalid lead payload", parsed.error.flatten());
-  const tenantId = await getDefaultTenantId();
+  const tenantId = req.auth.tenantId;
   await ensureAgentCanAccessLead(req.user, req.params.id);
   const l = await updateLead(tenantId, req.params.id, parsed.data, req.user?.id);
   res.json(l);
@@ -110,14 +109,14 @@ export const patch = asyncHandler(async (req, res) => {
 export const moveStage = asyncHandler(async (req, res) => {
   const parsed = z.object({ stageId: z.string() }).safeParse(req.body);
   if (!parsed.success) throw BadRequest("stageId required", parsed.error.flatten());
-  const tenantId = await getDefaultTenantId();
+  const tenantId = req.auth.tenantId;
   await ensureAgentCanAccessLead(req.user, req.params.id);
   const l = await moveLeadStage(tenantId, req.params.id, parsed.data.stageId, req.user?.id);
   res.json(l);
 });
 
 export const remove = asyncHandler(async (req, res) => {
-  const tenantId = await getDefaultTenantId();
+  const tenantId = req.auth.tenantId;
   await deleteLead(tenantId, req.params.id);
   res.status(204).end();
 });
@@ -125,7 +124,7 @@ export const remove = asyncHandler(async (req, res) => {
 export const addNote = asyncHandler(async (req, res) => {
   const parsed = z.object({ body: z.string().min(1).max(5000) }).safeParse(req.body);
   if (!parsed.success) throw BadRequest("body required", parsed.error.flatten());
-  const tenantId = await getDefaultTenantId();
+  const tenantId = req.auth.tenantId;
   await ensureAgentCanAccessLead(req.user, req.params.id);
   const n = await addLeadNote(tenantId, req.params.id, parsed.data.body, req.user?.id);
   res.status(201).json(n);

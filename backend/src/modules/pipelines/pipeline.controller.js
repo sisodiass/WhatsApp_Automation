@@ -1,6 +1,5 @@
 import { z } from "zod";
 import { asyncHandler, BadRequest } from "../../shared/errors.js";
-import { getDefaultTenantId } from "../../shared/tenant.js";
 import {
   createPipeline,
   createStage,
@@ -31,14 +30,14 @@ const reorderSchema = z.object({
   updates: z.array(z.object({ id: z.string(), order: z.number().int() })).min(1),
 });
 
-export const listAll = asyncHandler(async (_req, res) => {
-  const tenantId = await getDefaultTenantId();
+export const listAll = asyncHandler(async (req, res) => {
+  const tenantId = req.auth.tenantId;
   const items = await listPipelines(tenantId);
   res.json({ items });
 });
 
 export const getOne = asyncHandler(async (req, res) => {
-  const tenantId = await getDefaultTenantId();
+  const tenantId = req.auth.tenantId;
   const p = await getPipeline(tenantId, req.params.id);
   res.json(p);
 });
@@ -46,7 +45,7 @@ export const getOne = asyncHandler(async (req, res) => {
 export const create = asyncHandler(async (req, res) => {
   const parsed = pipelineSchema.safeParse(req.body);
   if (!parsed.success) throw BadRequest("invalid pipeline payload", parsed.error.flatten());
-  const tenantId = await getDefaultTenantId();
+  const tenantId = req.auth.tenantId;
   const p = await createPipeline(tenantId, parsed.data);
   res.status(201).json(p);
 });
@@ -54,13 +53,13 @@ export const create = asyncHandler(async (req, res) => {
 export const patch = asyncHandler(async (req, res) => {
   const parsed = pipelineSchema.partial().safeParse(req.body);
   if (!parsed.success) throw BadRequest("invalid pipeline payload", parsed.error.flatten());
-  const tenantId = await getDefaultTenantId();
+  const tenantId = req.auth.tenantId;
   const p = await updatePipeline(tenantId, req.params.id, parsed.data);
   res.json(p);
 });
 
 export const remove = asyncHandler(async (req, res) => {
-  const tenantId = await getDefaultTenantId();
+  const tenantId = req.auth.tenantId;
   await deletePipeline(tenantId, req.params.id);
   res.status(204).end();
 });
@@ -70,7 +69,7 @@ export const remove = asyncHandler(async (req, res) => {
 export const createStageRoute = asyncHandler(async (req, res) => {
   const parsed = stageSchema.safeParse(req.body);
   if (!parsed.success) throw BadRequest("invalid stage payload", parsed.error.flatten());
-  const tenantId = await getDefaultTenantId();
+  const tenantId = req.auth.tenantId;
   const s = await createStage(tenantId, req.params.pipelineId, parsed.data);
   res.status(201).json(s);
 });
@@ -78,7 +77,7 @@ export const createStageRoute = asyncHandler(async (req, res) => {
 export const patchStageRoute = asyncHandler(async (req, res) => {
   const parsed = stageSchema.partial().safeParse(req.body);
   if (!parsed.success) throw BadRequest("invalid stage payload", parsed.error.flatten());
-  const tenantId = await getDefaultTenantId();
+  const tenantId = req.auth.tenantId;
   const s = await updateStage(tenantId, req.params.stageId, parsed.data);
   res.json(s);
 });
@@ -86,13 +85,13 @@ export const patchStageRoute = asyncHandler(async (req, res) => {
 export const reorderStagesRoute = asyncHandler(async (req, res) => {
   const parsed = reorderSchema.safeParse(req.body);
   if (!parsed.success) throw BadRequest("invalid reorder payload", parsed.error.flatten());
-  const tenantId = await getDefaultTenantId();
+  const tenantId = req.auth.tenantId;
   await reorderStages(tenantId, req.params.pipelineId, parsed.data.updates);
   res.status(204).end();
 });
 
 export const deleteStageRoute = asyncHandler(async (req, res) => {
-  const tenantId = await getDefaultTenantId();
+  const tenantId = req.auth.tenantId;
   await deleteStage(tenantId, req.params.stageId);
   res.status(204).end();
 });

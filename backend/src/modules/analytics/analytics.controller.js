@@ -1,5 +1,4 @@
 import { asyncHandler, BadRequest } from "../../shared/errors.js";
-import { getDefaultTenantId } from "../../shared/tenant.js";
 import {
   getAgentProductivity,
   getAutomationPerformance,
@@ -24,7 +23,7 @@ function parsePeriod(req, fallback = "7d") {
 
 export const overview = asyncHandler(async (req, res) => {
   const period = parsePeriod(req);
-  const tenantId = await getDefaultTenantId();
+  const tenantId = req.auth.tenantId;
   const since = periodSince(period);
   const [ov, byCampaign] = await Promise.all([
     getOverview(tenantId, period),
@@ -40,32 +39,32 @@ export const overview = asyncHandler(async (req, res) => {
 
 export const sources = asyncHandler(async (req, res) => {
   const period = parsePeriod(req, "30d");
-  const tenantId = await getDefaultTenantId();
+  const tenantId = req.auth.tenantId;
   const items = await getSourceBreakdown(tenantId, period);
   res.json({ period, items });
 });
 
 export const funnel = asyncHandler(async (req, res) => {
-  const tenantId = await getDefaultTenantId();
+  const tenantId = req.auth.tenantId;
   const data = await getPipelineFunnel(tenantId, req.query.pipelineId?.toString());
   res.json(data);
 });
 
-export const bulk = asyncHandler(async (_req, res) => {
-  const tenantId = await getDefaultTenantId();
+export const bulk = asyncHandler(async (req, res) => {
+  const tenantId = req.auth.tenantId;
   const items = await getBulkRollup(tenantId);
   res.json({ items });
 });
 
 export const followups = asyncHandler(async (req, res) => {
   const period = parsePeriod(req, "30d");
-  const tenantId = await getDefaultTenantId();
+  const tenantId = req.auth.tenantId;
   const items = await getFollowupPerformance(tenantId, period);
   res.json({ period, items });
 });
 
-export const automations = asyncHandler(async (_req, res) => {
-  const tenantId = await getDefaultTenantId();
+export const automations = asyncHandler(async (req, res) => {
+  const tenantId = req.auth.tenantId;
   const items = await getAutomationPerformance(tenantId);
   res.json({ items });
 });
@@ -73,14 +72,14 @@ export const automations = asyncHandler(async (_req, res) => {
 // M11.D4: revenue-aware source breakdown.
 export const sourcesRoi = asyncHandler(async (req, res) => {
   const period = parsePeriod(req, "30d");
-  const tenantId = await getDefaultTenantId();
+  const tenantId = req.auth.tenantId;
   const items = await getSourceRoi(tenantId, period);
   res.json({ period, items });
 });
 
 // M11.D4: pipeline burndown — daily stage counts over a window.
 export const burndown = asyncHandler(async (req, res) => {
-  const tenantId = await getDefaultTenantId();
+  const tenantId = req.auth.tenantId;
   const days = Math.min(90, Math.max(7, Number(req.query.days || 30)));
   const data = await getPipelineBurndown(
     tenantId,
@@ -93,7 +92,7 @@ export const burndown = asyncHandler(async (req, res) => {
 // M11.D4: per-agent productivity (messages sent + leads won).
 export const agentProductivity = asyncHandler(async (req, res) => {
   const period = parsePeriod(req, "30d");
-  const tenantId = await getDefaultTenantId();
+  const tenantId = req.auth.tenantId;
   const items = await getAgentProductivity(tenantId, period);
   res.json({ period, items });
 });

@@ -1,6 +1,5 @@
 import { z } from "zod";
 import { asyncHandler, BadRequest } from "../../shared/errors.js";
-import { getDefaultTenantId } from "../../shared/tenant.js";
 import {
   assignTag,
   createTag,
@@ -15,8 +14,8 @@ const tagSchema = z.object({
   color: z.string().max(20).nullable().optional(),
 });
 
-export const list = asyncHandler(async (_req, res) => {
-  const tenantId = await getDefaultTenantId();
+export const list = asyncHandler(async (req, res) => {
+  const tenantId = req.auth.tenantId;
   const items = await listTags(tenantId);
   res.json({ items });
 });
@@ -24,7 +23,7 @@ export const list = asyncHandler(async (_req, res) => {
 export const create = asyncHandler(async (req, res) => {
   const parsed = tagSchema.safeParse(req.body);
   if (!parsed.success) throw BadRequest("invalid tag payload", parsed.error.flatten());
-  const tenantId = await getDefaultTenantId();
+  const tenantId = req.auth.tenantId;
   const tag = await createTag(tenantId, parsed.data);
   res.status(201).json(tag);
 });
@@ -32,25 +31,25 @@ export const create = asyncHandler(async (req, res) => {
 export const patch = asyncHandler(async (req, res) => {
   const parsed = tagSchema.partial().safeParse(req.body);
   if (!parsed.success) throw BadRequest("invalid tag payload", parsed.error.flatten());
-  const tenantId = await getDefaultTenantId();
+  const tenantId = req.auth.tenantId;
   const tag = await updateTag(tenantId, req.params.id, parsed.data);
   res.json(tag);
 });
 
 export const remove = asyncHandler(async (req, res) => {
-  const tenantId = await getDefaultTenantId();
+  const tenantId = req.auth.tenantId;
   await deleteTag(tenantId, req.params.id);
   res.status(204).end();
 });
 
 export const assign = asyncHandler(async (req, res) => {
-  const tenantId = await getDefaultTenantId();
+  const tenantId = req.auth.tenantId;
   await assignTag(tenantId, req.params.chatId, req.params.tagId);
   res.status(204).end();
 });
 
 export const unassign = asyncHandler(async (req, res) => {
-  const tenantId = await getDefaultTenantId();
+  const tenantId = req.auth.tenantId;
   await unassignTag(tenantId, req.params.chatId, req.params.tagId);
   res.status(204).end();
 });

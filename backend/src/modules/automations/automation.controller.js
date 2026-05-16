@@ -1,6 +1,5 @@
 import { z } from "zod";
 import { asyncHandler, BadRequest } from "../../shared/errors.js";
-import { getDefaultTenantId } from "../../shared/tenant.js";
 import {
   createAutomation,
   deleteAutomation,
@@ -31,14 +30,14 @@ const baseSchema = z.object({
   definition: z.record(z.any()),
 });
 
-export const list = asyncHandler(async (_req, res) => {
-  const tenantId = await getDefaultTenantId();
+export const list = asyncHandler(async (req, res) => {
+  const tenantId = req.auth.tenantId;
   const items = await listAutomations(tenantId);
   res.json({ items });
 });
 
 export const getOne = asyncHandler(async (req, res) => {
-  const tenantId = await getDefaultTenantId();
+  const tenantId = req.auth.tenantId;
   const a = await getAutomation(tenantId, req.params.id);
   res.json(a);
 });
@@ -46,7 +45,7 @@ export const getOne = asyncHandler(async (req, res) => {
 export const create = asyncHandler(async (req, res) => {
   const parsed = baseSchema.safeParse(req.body);
   if (!parsed.success) throw BadRequest("invalid automation payload", parsed.error.flatten());
-  const tenantId = await getDefaultTenantId();
+  const tenantId = req.auth.tenantId;
   const a = await createAutomation(tenantId, parsed.data, req.user?.id);
   res.status(201).json(a);
 });
@@ -54,19 +53,19 @@ export const create = asyncHandler(async (req, res) => {
 export const patch = asyncHandler(async (req, res) => {
   const parsed = baseSchema.partial().safeParse(req.body);
   if (!parsed.success) throw BadRequest("invalid automation payload", parsed.error.flatten());
-  const tenantId = await getDefaultTenantId();
+  const tenantId = req.auth.tenantId;
   const a = await updateAutomation(tenantId, req.params.id, parsed.data);
   res.json(a);
 });
 
 export const remove = asyncHandler(async (req, res) => {
-  const tenantId = await getDefaultTenantId();
+  const tenantId = req.auth.tenantId;
   await deleteAutomation(tenantId, req.params.id);
   res.status(204).end();
 });
 
 export const runs = asyncHandler(async (req, res) => {
-  const tenantId = await getDefaultTenantId();
+  const tenantId = req.auth.tenantId;
   const items = await listRecentRuns(tenantId, {
     automationId: req.query.automationId?.toString(),
     leadId: req.query.leadId?.toString(),
@@ -79,7 +78,7 @@ export const runs = asyncHandler(async (req, res) => {
 export const fire = asyncHandler(async (req, res) => {
   const parsed = z.object({ leadId: z.string() }).safeParse(req.body);
   if (!parsed.success) throw BadRequest("leadId required", parsed.error.flatten());
-  const tenantId = await getDefaultTenantId();
+  const tenantId = req.auth.tenantId;
   const run = await fireForLead(tenantId, req.params.id, parsed.data.leadId);
   res.status(201).json(run);
 });

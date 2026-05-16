@@ -30,7 +30,7 @@ const createSchema = z.object({
 });
 
 export const listLinks = asyncHandler(async (req, res) => {
-  const tenantId = await getDefaultTenantId();
+  const tenantId = req.auth.tenantId;
   res.json(
     await listPaymentLinks(tenantId, {
       status: req.query.status?.toString(),
@@ -43,19 +43,19 @@ export const listLinks = asyncHandler(async (req, res) => {
 });
 
 export const getLink = asyncHandler(async (req, res) => {
-  const tenantId = await getDefaultTenantId();
+  const tenantId = req.auth.tenantId;
   res.json(await getPaymentLink(tenantId, req.params.id));
 });
 
 export const createLink = asyncHandler(async (req, res) => {
   const parsed = createSchema.safeParse(req.body);
   if (!parsed.success) throw BadRequest("invalid payload", parsed.error.flatten());
-  const tenantId = await getDefaultTenantId();
+  const tenantId = req.auth.tenantId;
   res.status(201).json(await createPaymentLink(tenantId, parsed.data, req.user?.id));
 });
 
 export const cancelLink = asyncHandler(async (req, res) => {
-  const tenantId = await getDefaultTenantId();
+  const tenantId = req.auth.tenantId;
   res.json(await cancelPaymentLink(tenantId, req.params.id));
 });
 
@@ -67,7 +67,7 @@ const refundSchema = z.object({
 export const refundLink = asyncHandler(async (req, res) => {
   const parsed = refundSchema.safeParse(req.body || {});
   if (!parsed.success) throw BadRequest("invalid payload", parsed.error.flatten());
-  const tenantId = await getDefaultTenantId();
+  const tenantId = req.auth.tenantId;
   res.json(
     await refundPaymentLink(tenantId, req.params.id, {
       amount: parsed.data.amount,
@@ -77,7 +77,7 @@ export const refundLink = asyncHandler(async (req, res) => {
 });
 
 export const listTxns = asyncHandler(async (req, res) => {
-  const tenantId = await getDefaultTenantId();
+  const tenantId = req.auth.tenantId;
   res.json(
     await listTransactions(tenantId, {
       paymentLinkId: req.query.paymentLinkId?.toString(),
@@ -89,7 +89,7 @@ export const listTxns = asyncHandler(async (req, res) => {
 });
 
 export const invoicesList = asyncHandler(async (req, res) => {
-  const tenantId = await getDefaultTenantId();
+  const tenantId = req.auth.tenantId;
   res.json(
     await listInvoices(tenantId, {
       quotationId: req.query.quotationId?.toString(),

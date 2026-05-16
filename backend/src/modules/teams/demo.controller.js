@@ -1,6 +1,5 @@
 import { z } from "zod";
 import { asyncHandler, BadRequest } from "../../shared/errors.js";
-import { getDefaultTenantId } from "../../shared/tenant.js";
 import { bookDemo } from "./demo.service.js";
 import { isConfigured } from "./teams.service.js";
 
@@ -10,14 +9,14 @@ const bookSchema = z.object({
   subject: z.string().max(200).optional(),
 });
 
-export const status = asyncHandler(async (_req, res) => {
+export const status = asyncHandler(async (req, res) => {
   res.json({ configured: await isConfigured() });
 });
 
 export const book = asyncHandler(async (req, res) => {
   const parsed = bookSchema.safeParse(req.body);
   if (!parsed.success) throw BadRequest("invalid demo payload", parsed.error.flatten());
-  const tenantId = await getDefaultTenantId();
+  const tenantId = req.auth.tenantId;
   const result = await bookDemo({
     tenantId,
     chatId: req.params.chatId,

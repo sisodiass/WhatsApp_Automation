@@ -2,7 +2,6 @@ import { Router } from "express";
 import { z } from "zod";
 import { asyncHandler, BadRequest } from "../../shared/errors.js";
 import { requireAuth, requireRole } from "../auth/auth.middleware.js";
-import { getDefaultTenantId } from "../../shared/tenant.js";
 import { scoreLead, suggestReplies } from "./scoring.service.js";
 
 // Mounted under /api. Provides:
@@ -21,7 +20,7 @@ aiScoringRouter.post(
   "/leads/:id/score",
   requireRole(...WRITE),
   asyncHandler(async (req, res) => {
-    const tenantId = await getDefaultTenantId();
+    const tenantId = req.auth.tenantId;
     const result = await scoreLead(tenantId, req.params.id, req.user?.id);
     res.json(result);
   }),
@@ -37,7 +36,7 @@ aiScoringRouter.post(
   asyncHandler(async (req, res) => {
     const parsed = suggestSchema.safeParse(req.body || {});
     if (!parsed.success) throw BadRequest("invalid suggest payload", parsed.error.flatten());
-    const tenantId = await getDefaultTenantId();
+    const tenantId = req.auth.tenantId;
     const result = await suggestReplies(tenantId, req.params.chatId, parsed.data);
     res.json(result);
   }),
