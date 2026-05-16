@@ -20,6 +20,32 @@ import { processAutomationStepJob } from "./queues/automation-runs.worker.js";
 import { processSchedulerJob } from "./queues/scheduler.worker.js";
 import { startAutomationSubscribers } from "../modules/automations/automation.subscriber.js";
 import { startNotificationSubscribers } from "../modules/notifications/notification.subscriber.js";
+import {
+  notifyOnTerminalJobFailure,
+  tenantIdFromMessageId,
+  tenantIdFromAutomationRunId,
+} from "../shared/job-failure-alerts.js";
+
+// M11.D3: per-queue context resolvers + human-readable descriptors used
+// to enrich the in-app Notification surfaced on terminal failure.
+const FAILURE_ALERTS = {
+  [QUEUES.OUTGOING]: {
+    descriptor: "Outbound message delivery",
+    resolveTenantId: (job) => tenantIdFromMessageId(job.data?.messageId),
+  },
+  [QUEUES.BULK_OUTGOING]: {
+    descriptor: "Bulk broadcast send",
+    resolveTenantId: (job) => tenantIdFromMessageId(job.data?.messageId),
+  },
+  [QUEUES.AUTOMATION_RUNS]: {
+    descriptor: "Automation step",
+    resolveTenantId: (job) => tenantIdFromAutomationRunId(job.data?.runId),
+  },
+  // INCOMING + KB_SEARCH + PDF_PROCESSING are best-effort paths; their
+  // failures fall back through the FALLBACK template or surface as
+  // KB-upload-failed states the operator already sees in the UI. We
+  // don't add notification spam for those.
+};
 
 const log = child("worker");
 
@@ -111,14 +137,20 @@ async function bootstrap() {
     w.on("completed", (job, result) =>
       log.debug("job completed", { queue: w.name, id: job.id, result }),
     );
-    w.on("failed", (job, err) =>
+    w.on("failed", (job, err) => {
       log.error("job failed", {
         queue: w.name,
         id: job?.id,
         attempts: job?.attemptsMade,
         err: err.message,
-      }),
-    );
+      });
+      // M11.D3: surface terminal failures as in-app Notifications for
+      // admin users. Fire-and-forget; the helper swallows its own errors.
+      const alertCfg = FAILURE_ALERTS[w.name];
+      if (alertCfg) {
+        notifyOnTerminalJobFailure(job, err, alertCfg).catch(() => {});
+      }
+    });
   }
 
   log.info("workers ready", { queues: Object.values(QUEUES) });

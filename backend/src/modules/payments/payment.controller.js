@@ -16,6 +16,7 @@ import {
   getWebhookSecret,
   listPaymentProviders,
 } from "./providers/index.js";
+import { emitWebhookFailureAlert } from "../../shared/payment-webhook-alerts.js";
 
 const createSchema = z.object({
   amount: z.union([z.number(), z.string()]),
@@ -136,8 +137,27 @@ function webhookHandler(providerName) {
     }
 
     const event = provider.parseWebhookEvent({ rawBody, headers: req.headers });
-    const result = await handleWebhookEvent(tenantId, providerName.toUpperCase(), event);
-    res.json({ ok: true, result });
+    try {
+      const result = await handleWebhookEvent(tenantId, providerName.toUpperCase(), event);
+      res.json({ ok: true, result });
+    } catch (err) {
+      // M11.D3: surface webhook-processing failure to operators BEFORE
+      // re-throwing. Razorpay and Stripe both retry on 5xx, so the
+      // gateway will hit us again — but if our internal processing is
+      // persistently broken (e.g. DB down, FK violation from a recent
+      // migration), operators need to see it without grep-ing logs.
+      //
+      // Signature validation already passed at this point. Idempotency
+      // on PaymentTransaction (unique on tenant+provider+providerPaymentId)
+      // prevents duplicate captures on the gateway's retry.
+      await emitWebhookFailureAlert({
+        tenantId,
+        provider: providerName.toUpperCase(),
+        event,
+        err,
+      });
+      throw err;
+    }
   });
 }
 
