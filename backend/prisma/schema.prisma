@@ -273,6 +273,10 @@ model User {
   role         Role      @default(AGENT)
   isActive     Boolean   @default(true) @map("is_active")
   lastLoginAt  DateTime? @map("last_login_at")
+  // M11.C1 — set when the user proves they own the email address via
+  // the post-signup verification flow. Null = unverified (we still
+  // allow login for backwards-compat; UI surfaces a banner).
+  emailVerifiedAt DateTime? @map("email_verified_at")
   createdAt    DateTime  @default(now()) @map("created_at")
   updatedAt    DateTime  @updatedAt @map("updated_at")
 
@@ -294,9 +298,44 @@ model User {
   // M11 revenue authoring
   createdQuotations  Quotation[]         @relation("QuotationCreator")
   quotationApprovals QuotationApproval[] @relation("QuotationApprover")
+  // M11.C1 — short-lived tokens for verify-email + reset-password flows
+  authTokens         AuthToken[]
 
   @@index([tenantId])
   @@map("users")
+}
+
+// ─── Auth Tokens (M11.C1) ────────────────────────────────────────────
+//
+// Single table backs all single-use auth artifacts (verify email,
+// reset password — OTP login later). Tokens are SHA-256 hashed at rest
+// so a DB dump doesn't leak working credentials. The plaintext token
+// only ever exists in the email body sent to the user.
+//
+// Lookup is by tokenHash directly (not by id) so consumption requires
+// possession of the plaintext. usedAt marks single-use consumption;
+// expired/used rows are kept for a brief audit window and swept by a
+// scheduler job (or just left to age out — small volume).
+
+enum AuthTokenKind {
+  VERIFY_EMAIL
+  RESET_PASSWORD
+}
+
+model AuthToken {
+  id        String        @id @default(cuid())
+  userId    String        @map("user_id")
+  kind      AuthTokenKind
+  tokenHash String        @unique @map("token_hash")
+  expiresAt DateTime      @map("expires_at")
+  usedAt    DateTime?     @map("used_at")
+  createdAt DateTime      @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, kind])
+  @@index([expiresAt])
+  @@map("auth_tokens")
 }
 
 // ─── Campaigns ───────────────────────────────────────────────────────
