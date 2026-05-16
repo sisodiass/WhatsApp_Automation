@@ -686,6 +686,10 @@ function emptyForm() {
 function displayName(c) {
   const n = [c.firstName, c.lastName].filter(Boolean).join(" ");
   if (n) return n;
+  // WhatsApp push-name (notifyName) — captured on every inbound, so
+  // even @lid contacts whose real phone we couldn't resolve get a
+  // humanized label rather than "(no name)".
+  if (c.notifyName) return c.notifyName;
   // Don't show the raw LID as a display name — it's a 15-digit
   // synthetic id, useless to operators.
   if (c.mobile && !c.mobile.endsWith("@lid")) return c.mobile;

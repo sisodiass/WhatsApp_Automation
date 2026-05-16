@@ -16,6 +16,10 @@ const LEAD_INCLUDE = {
       id: true,
       firstName: true,
       lastName: true,
+      // M11 fix: WhatsApp push-name. UI uses this as the display
+      // fallback when firstName + lastName are empty, so the lead card
+      // doesn't show "(no name)" for @lid contacts.
+      notifyName: true,
       mobile: true,
       email: true,
       company: true,

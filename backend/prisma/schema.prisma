@@ -697,6 +697,12 @@ model Contact {
   tenantId     String    @map("tenant_id")
   firstName    String?   @map("first_name")
   lastName     String?   @map("last_name")
+  // M11 fix: the WhatsApp display name the customer set on their own
+  // device ("Push Name"). Captured on EVERY inbound — not just first
+  // contact — so the UI always falls back to a humanized label when
+  // first/last name aren't filled in. Especially important for @lid
+  // contacts whose real phone we couldn't resolve.
+  notifyName   String?   @map("notify_name")
   // E.164 (e.g. "919999999999"), matches chats.phone.
   mobile       String
   email        String?
