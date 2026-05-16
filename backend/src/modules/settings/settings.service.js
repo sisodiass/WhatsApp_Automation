@@ -20,6 +20,7 @@ import { prisma } from "../../shared/prisma.js";
 import { decrypt, encrypt } from "../../utils/crypto.js";
 import { invalidateProvider } from "../ai/providers/index.js";
 import { invalidatePaymentsProvider } from "../payments/providers/index.js";
+import { invalidateEmailProvider } from "../email/providers/index.js";
 
 // Keys that must always be encrypted at rest. Add API keys / OAuth secrets
 // here; the regex below also catches anything ending in a secret suffix.
@@ -28,6 +29,9 @@ const SECRET_KEYS = new Set([
   "ai.gemini.api_key",
   "ai.claude.api_key",
   "microsoft.client_secret",
+  // M11.D5: email provider credentials
+  "email.resend.api_key",
+  "email.postmark.server_token",
 ]);
 
 const SECRET_SUFFIX_RE = /\.(api_key|secret|password|credentials?)$/;
@@ -168,6 +172,8 @@ export async function setSetting({ tenantId, key, value, changedById }) {
   if (PROVIDER_KEYS.has(key)) invalidateProvider();
   // M11: any payments.* change busts the payments-provider cache.
   if (key.startsWith("payments.")) invalidatePaymentsProvider();
+  // M11.D5: any email.* change busts the email-provider cache.
+  if (key.startsWith("email.")) invalidateEmailProvider();
 
   return row;
 }

@@ -11,6 +11,7 @@
 
 import { prisma } from "./prisma.js";
 import { child } from "./logger.js";
+import { maybeEmailNotification } from "../modules/email/email.dispatcher.js";
 
 const log = child("payment-webhook-alerts");
 
@@ -46,6 +47,16 @@ export async function emitWebhookFailureAlert({ tenantId, provider, event, err }
         title,
         body,
       })),
+    });
+
+    // M11.D5: also email when WEBHOOK_FAILED is in email.notify_kinds.
+    await maybeEmailNotification({
+      tenantId,
+      userIds: admins.map((u) => u.id),
+      kind: "WEBHOOK_FAILED",
+      title,
+      body,
+      url: null,
     });
 
     log.error("payment webhook failure notified", {

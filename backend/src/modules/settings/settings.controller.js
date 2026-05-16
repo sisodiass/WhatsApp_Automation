@@ -42,6 +42,14 @@ const WRITABLE = new Set([
   "handover.human_request_keywords",
   "handover.negative_sentiment_enabled",
   "handover.negative_sentiment_keywords",
+  // M11.D5 — transactional email
+  "email.enabled",
+  "email.provider",
+  "email.from_address",
+  "email.from_name",
+  "email.notify_kinds",
+  "email.resend.api_key",
+  "email.postmark.server_token",
   // Microsoft Graph (Phase 9)
   "microsoft.tenant_id",
   "microsoft.client_id",
