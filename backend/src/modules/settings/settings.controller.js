@@ -51,6 +51,10 @@ const WRITABLE = new Set([
   "email.postmark.server_token",
   // M11.C2 — SaaS signup gate
   "tenant.signup_enabled",
+  // M11.C3b — Stripe Billing credentials
+  "billing.stripe.publishable_key",
+  "billing.stripe.secret_key",
+  "billing.stripe.webhook_secret",
   // Microsoft Graph (Phase 9)
   "microsoft.tenant_id",
   "microsoft.client_id",

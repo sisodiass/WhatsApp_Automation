@@ -43,6 +43,11 @@ const GROUPS = [
     label: "Tenant",
     help: "Workspace-level toggles, including public-signup gating.",
   },
+  {
+    id: "billing",
+    label: "Billing (Stripe)",
+    help: "Stripe API credentials + webhook signing secret. Required to take real money on the Billing page.",
+  },
 ];
 
 // Friendly labels + tooltip help text per key.
@@ -194,6 +199,18 @@ const META = {
   "tenant.signup_enabled": {
     label: "Allow public signup (SaaS mode)",
     help: "When ON, anyone can create a new organization via /signup and become its SUPER_ADMIN. Default OFF — existing single-tenant deploys stay safe. Flip ON only when you're running this as a multi-tenant SaaS and want to accept self-service signups.",
+  },
+  "billing.stripe.publishable_key": {
+    label: "Stripe publishable key",
+    help: "Encrypted at rest. Starts with pk_test_ or pk_live_. From Stripe Dashboard → Developers → API keys. Safe to expose to the frontend (Stripe.js uses it).",
+  },
+  "billing.stripe.secret_key": {
+    label: "Stripe secret key",
+    help: "Encrypted at rest. Starts with sk_test_ or sk_live_. Server-side only. Used to create Checkout + Portal sessions.",
+  },
+  "billing.stripe.webhook_secret": {
+    label: "Stripe webhook signing secret",
+    help: "Encrypted at rest. Starts with whsec_. Create a webhook endpoint in Stripe → Developers → Webhooks pointing to /api/webhooks/billing/stripe; copy the signing secret here. Without this, real Stripe events are rejected.",
   },
   "microsoft.tenant_id": {
     label: "Microsoft tenant ID",

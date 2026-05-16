@@ -21,6 +21,7 @@ import { decrypt, encrypt } from "../../utils/crypto.js";
 import { invalidateProvider } from "../ai/providers/index.js";
 import { invalidatePaymentsProvider } from "../payments/providers/index.js";
 import { invalidateEmailProvider } from "../email/providers/index.js";
+import { invalidateBillingProvider } from "../billing/providers/index.js";
 
 // Keys that must always be encrypted at rest. Add API keys / OAuth secrets
 // here; the regex below also catches anything ending in a secret suffix.
@@ -174,6 +175,8 @@ export async function setSetting({ tenantId, key, value, changedById }) {
   if (key.startsWith("payments.")) invalidatePaymentsProvider();
   // M11.D5: any email.* change busts the email-provider cache.
   if (key.startsWith("email.")) invalidateEmailProvider();
+  // M11.C3b: any billing.* change busts the billing-provider cache.
+  if (key.startsWith("billing.")) invalidateBillingProvider();
 
   return row;
 }

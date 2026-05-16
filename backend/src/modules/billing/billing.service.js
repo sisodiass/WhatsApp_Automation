@@ -7,6 +7,9 @@
 
 import { prisma } from "../../shared/prisma.js";
 import { child } from "../../shared/logger.js";
+import { config } from "../../config/index.js";
+import { BadRequest, Conflict, NotFound } from "../../shared/errors.js";
+import { getBillingProvider } from "./providers/index.js";
 
 const log = child("billing");
 
@@ -203,4 +206,297 @@ export async function getSubscription(tenantId) {
     sub = await ensureSubscription(tenantId);
   }
   return sub;
+}
+
+// ─── M11.C3b: Stripe Checkout + Portal + webhook ──────────────────
+
+function buildReturnUrl(path) {
+  const base = (config.frontendUrl || "").replace(/\/+$/, "");
+  return `${base}${path.startsWith("/") ? "" : "/"}${path}`;
+}
+
+/**
+ * Start a Stripe Checkout session for a plan upgrade.
+ *
+ *   - Looks up the target plan by slug.
+ *   - Requires the plan to have a stripePriceId (paid plans only).
+ *     Free plan upgrades go through changePlan() instead.
+ *   - Reuses the tenant's existing stripeCustomerId when present so
+ *     saved payment methods carry over.
+ *   - Returns the Stripe Checkout URL — frontend redirects to it.
+ *
+ * On success: Stripe fires `checkout.session.completed` →
+ *   handleStripeWebhook updates the local Subscription via metadata.
+ */
+export async function createCheckoutSession({ tenantId, planSlug, userEmail }) {
+  if (!tenantId || !planSlug) throw BadRequest("tenantId + planSlug required");
+  const plan = await prisma.plan.findUnique({ where: { slug: planSlug } });
+  if (!plan || !plan.isActive) throw NotFound(`plan "${planSlug}" not found`);
+  if (!plan.stripePriceId) {
+    throw BadRequest(
+      `plan "${planSlug}" has no Stripe price configured — operator must paste a price_id`,
+    );
+  }
+
+  const sub = await getSubscription(tenantId);
+  if (sub.plan.slug === planSlug && sub.status === "ACTIVE") {
+    throw Conflict("already subscribed to this plan");
+  }
+
+  const { provider } = await getBillingProvider();
+  const successUrl = buildReturnUrl("/billing?status=success");
+  const cancelUrl = buildReturnUrl("/billing?status=cancelled");
+
+  const result = await provider.createCheckoutSession({
+    tenantId,
+    planSlug,
+    priceId: plan.stripePriceId,
+    customerId: sub.stripeCustomerId || null,
+    customerEmail: userEmail || null,
+    successUrl,
+    cancelUrl,
+  });
+  log.info("checkout session created", {
+    tenantId,
+    planSlug,
+    sessionId: result.sessionId,
+  });
+  return result;
+}
+
+/**
+ * Stripe Customer Portal — the operator-hosted page where customers
+ * update payment methods, view invoices, cancel, etc. Requires the
+ * tenant to have a `stripeCustomerId` (set on first successful
+ * checkout). Free-plan tenants don't have one yet → 400.
+ */
+export async function createPortalSession({ tenantId }) {
+  const sub = await getSubscription(tenantId);
+  if (!sub.stripeCustomerId) {
+    throw BadRequest(
+      "no Stripe customer on file — complete a checkout first to access the portal",
+    );
+  }
+  const { provider } = await getBillingProvider();
+  const result = await provider.createPortalSession({
+    customerId: sub.stripeCustomerId,
+    returnUrl: buildReturnUrl("/billing"),
+  });
+  log.info("portal session created", { tenantId });
+  return result;
+}
+
+// ─── Webhook handler ──────────────────────────────────────────────
+//
+// Stripe events we care about (mapped → side effects):
+//
+//   checkout.session.completed
+//     A new checkout flow finished. Pull tenantId + planSlug from
+//     metadata, look up the planId, then transition the local
+//     Subscription. Sets stripeCustomerId + stripeSubscriptionId.
+//
+//   customer.subscription.updated
+//     Plan change OR cancel-at-period-end toggle. Updates planId,
+//     status, period dates, cancelAtPeriodEnd.
+//
+//   customer.subscription.deleted
+//     Final cancellation (after current period or immediate). Mark
+//     status=CANCELLED; downgrade plan to free when the period ends.
+//     For v1 we transition to free immediately; C.3c can add the
+//     grace-period gate.
+//
+//   invoice.payment_succeeded
+//     Renewal succeeded — refresh period dates + status=ACTIVE.
+//
+//   invoice.payment_failed
+//     Payment failed → status=PAST_DUE so the UI can show a banner.
+//
+// All other event types are recorded for dedup but otherwise ignored.
+
+const HANDLED_EVENTS = new Set([
+  "checkout.session.completed",
+  "customer.subscription.updated",
+  "customer.subscription.deleted",
+  "invoice.payment_succeeded",
+  "invoice.payment_failed",
+]);
+
+export async function handleStripeWebhook(event) {
+  // Dedup: insert the event row; unique constraint short-circuits
+  // retries. Returns `null` on duplicate so the route handler can
+  // 200 immediately.
+  const tenantId = event.data?.object?.metadata?.tenantId || null;
+  try {
+    await prisma.billingWebhookEvent.create({
+      data: {
+        providerEventId: event.id,
+        provider: "STRIPE",
+        type: event.type,
+        tenantId,
+        rawPayload: event.raw || {},
+      },
+    });
+  } catch (err) {
+    // Unique violation → already processed.
+    if (err.code === "P2002") {
+      log.info("duplicate webhook event ignored", { eventId: event.id, type: event.type });
+      return { duplicate: true };
+    }
+    throw err;
+  }
+
+  if (!HANDLED_EVENTS.has(event.type)) {
+    log.debug("webhook event recorded (no handler)", { type: event.type });
+    return { recorded: true };
+  }
+
+  const obj = event.data?.object || {};
+
+  if (event.type === "checkout.session.completed") {
+    const tid = obj.metadata?.tenantId;
+    const planSlug = obj.metadata?.planSlug;
+    if (!tid || !planSlug) {
+      log.warn("checkout.session.completed missing metadata", { eventId: event.id });
+      return { skipped: "missing_metadata" };
+    }
+    await applyPlanChange(tid, planSlug, {
+      stripeCustomerId: obj.customer || null,
+      stripeSubscriptionId: obj.subscription || null,
+      status: "ACTIVE",
+    });
+    log.info("subscription activated from checkout", { tid, planSlug });
+    return { applied: "checkout" };
+  }
+
+  if (event.type === "customer.subscription.updated") {
+    const subscriptionId = obj.id;
+    const status = mapStripeSubscriptionStatus(obj.status);
+    const planSlug = obj.metadata?.planSlug;
+    const tid = obj.metadata?.tenantId || (await findTenantByStripeSubscription(subscriptionId));
+    if (!tid) {
+      log.warn("subscription.updated without resolvable tenant", { subscriptionId });
+      return { skipped: "no_tenant" };
+    }
+    const patch = {
+      status,
+      cancelAtPeriodEnd: Boolean(obj.cancel_at_period_end),
+      currentPeriodStart: obj.current_period_start
+        ? new Date(obj.current_period_start * 1000)
+        : null,
+      currentPeriodEnd: obj.current_period_end
+        ? new Date(obj.current_period_end * 1000)
+        : null,
+    };
+    // Plan change.
+    if (planSlug) {
+      const plan = await prisma.plan.findUnique({ where: { slug: planSlug } });
+      if (plan) patch.planId = plan.id;
+    }
+    await prisma.subscription.update({
+      where: { tenantId: tid },
+      data: patch,
+    });
+    log.info("subscription updated", { tid, status, planSlug });
+    return { applied: "updated" };
+  }
+
+  if (event.type === "customer.subscription.deleted") {
+    const subscriptionId = obj.id;
+    const tid = obj.metadata?.tenantId || (await findTenantByStripeSubscription(subscriptionId));
+    if (!tid) return { skipped: "no_tenant" };
+    // Move back to free for now. C.3c can add grace-period logic.
+    await applyPlanChange(tid, "free", {
+      status: "CANCELLED",
+      currentPeriodStart: null,
+      currentPeriodEnd: null,
+      stripeSubscriptionId: null,
+    });
+    log.info("subscription cancelled → reverted to free", { tid });
+    return { applied: "cancelled" };
+  }
+
+  if (event.type === "invoice.payment_succeeded") {
+    const subscriptionId = obj.subscription;
+    const tid = obj.metadata?.tenantId || (await findTenantByStripeSubscription(subscriptionId));
+    if (!tid) return { skipped: "no_tenant" };
+    await prisma.subscription.update({
+      where: { tenantId: tid },
+      data: {
+        status: "ACTIVE",
+        currentPeriodStart: obj.period_start ? new Date(obj.period_start * 1000) : undefined,
+        currentPeriodEnd: obj.period_end ? new Date(obj.period_end * 1000) : undefined,
+      },
+    });
+    return { applied: "renewed" };
+  }
+
+  if (event.type === "invoice.payment_failed") {
+    const subscriptionId = obj.subscription;
+    const tid = obj.metadata?.tenantId || (await findTenantByStripeSubscription(subscriptionId));
+    if (!tid) return { skipped: "no_tenant" };
+    await prisma.subscription.update({
+      where: { tenantId: tid },
+      data: { status: "PAST_DUE" },
+    });
+    log.warn("subscription payment failed", { tid });
+    return { applied: "past_due" };
+  }
+
+  return { ok: true };
+}
+
+// Look up a Subscription by its stripeSubscriptionId. Used when an
+// event doesn't carry tenantId in metadata (older events, Portal-
+// triggered changes, etc.).
+async function findTenantByStripeSubscription(stripeSubscriptionId) {
+  if (!stripeSubscriptionId) return null;
+  const row = await prisma.subscription.findFirst({
+    where: { stripeSubscriptionId },
+    select: { tenantId: true },
+  });
+  return row?.tenantId || null;
+}
+
+// Apply a plan change to a tenant's subscription. Looks up the plan
+// by slug, updates planId + any passed-through fields (status, Stripe
+// IDs, period dates).
+async function applyPlanChange(tenantId, planSlug, extras = {}) {
+  const plan = await prisma.plan.findUnique({ where: { slug: planSlug } });
+  if (!plan) throw new Error(`plan "${planSlug}" not found`);
+  return prisma.subscription.update({
+    where: { tenantId },
+    data: { planId: plan.id, ...extras },
+  });
+}
+
+// Stripe subscription.status → our SubscriptionStatus enum.
+function mapStripeSubscriptionStatus(stripeStatus) {
+  switch (stripeStatus) {
+    case "trialing":
+      return "TRIALING";
+    case "active":
+      return "ACTIVE";
+    case "past_due":
+    case "unpaid":
+      return "PAST_DUE";
+    case "canceled":
+      return "CANCELLED";
+    case "incomplete":
+    case "incomplete_expired":
+      return "EXPIRED";
+    default:
+      return "ACTIVE";
+  }
+}
+
+// Admin: set the Stripe Price ID on a plan (operator copies this from
+// their Stripe dashboard after creating Products + Prices).
+export async function setPlanStripePriceId(slug, stripePriceId) {
+  if (!slug) throw BadRequest("slug required");
+  const plan = await prisma.plan.findUnique({ where: { slug } });
+  if (!plan) throw NotFound(`plan "${slug}" not found`);
+  return prisma.plan.update({
+    where: { id: plan.id },
+    data: { stripePriceId: stripePriceId || null },
+  });
 }
