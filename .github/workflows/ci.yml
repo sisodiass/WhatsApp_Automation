@@ -32,6 +32,15 @@ jobs:
     defaults:
       run:
         working-directory: backend
+    # Some "unit" test files transitively import modules that load
+    # config/index.js at module-load time, which throws if DATABASE_URL
+    # is unset. We provide placeholder values so the import chain
+    # resolves without actually connecting to a DB. Real DB-touching
+    # tests live under tests/integration and run in the integration job.
+    env:
+      DATABASE_URL: postgresql://stub:stub@localhost:5432/stub
+      JWT_SECRET: ci-unit-jwt-secret-${{ github.sha }}-padding-to-satisfy-the-validator
+      ENCRYPTION_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
