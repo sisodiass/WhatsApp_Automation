@@ -1,13 +1,16 @@
 import { asyncHandler, BadRequest } from "../../shared/errors.js";
 import { getDefaultTenantId } from "../../shared/tenant.js";
 import {
+  getAgentProductivity,
   getAutomationPerformance,
   getBulkRollup,
   getCampaignBreakdown,
   getFollowupPerformance,
   getOverview,
+  getPipelineBurndown,
   getPipelineFunnel,
   getSourceBreakdown,
+  getSourceRoi,
   periodSince,
 } from "./analytics.service.js";
 
@@ -65,4 +68,32 @@ export const automations = asyncHandler(async (_req, res) => {
   const tenantId = await getDefaultTenantId();
   const items = await getAutomationPerformance(tenantId);
   res.json({ items });
+});
+
+// M11.D4: revenue-aware source breakdown.
+export const sourcesRoi = asyncHandler(async (req, res) => {
+  const period = parsePeriod(req, "30d");
+  const tenantId = await getDefaultTenantId();
+  const items = await getSourceRoi(tenantId, period);
+  res.json({ period, items });
+});
+
+// M11.D4: pipeline burndown — daily stage counts over a window.
+export const burndown = asyncHandler(async (req, res) => {
+  const tenantId = await getDefaultTenantId();
+  const days = Math.min(90, Math.max(7, Number(req.query.days || 30)));
+  const data = await getPipelineBurndown(
+    tenantId,
+    req.query.pipelineId?.toString(),
+    days,
+  );
+  res.json({ days, ...data });
+});
+
+// M11.D4: per-agent productivity (messages sent + leads won).
+export const agentProductivity = asyncHandler(async (req, res) => {
+  const period = parsePeriod(req, "30d");
+  const tenantId = await getDefaultTenantId();
+  const items = await getAgentProductivity(tenantId, period);
+  res.json({ period, items });
 });

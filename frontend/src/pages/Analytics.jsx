@@ -99,6 +99,10 @@ export default function Analytics() {
             {/* M8 advanced rollups: CRM, bulk, follow-up, automations. */}
             <AdvancedRollups period={period} />
 
+            {/* M11.D4 advanced operator views: source ROI, pipeline burndown,
+                agent productivity. */}
+            <D4Rollups period={period} />
+
             <section>
               <h2 className="mb-3 px-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
                 By campaign
@@ -402,6 +406,207 @@ function AdvancedRollups({ period }) {
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+// ─── M11.D4: advanced operator analytics ───────────────────────────
+// Three views the M8 rollups didn't cover:
+//   - Source ROI:        leads → won → revenue (per source, per currency)
+//   - Pipeline burndown: daily stage counts over 30d (sparkline per stage)
+//   - Agent productivity: messages sent + leads won, per agent
+
+function D4Rollups({ period }) {
+  const [data, setData] = useState({ roi: [], burndown: null, agents: [] });
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    Promise.all([
+      api.get("/analytics/sources-roi", { params: { period } }).then((r) => r.data.items).catch(() => []),
+      api.get("/analytics/burndown", { params: { days: 30 } }).then((r) => r.data).catch(() => null),
+      api.get("/analytics/agent-productivity", { params: { period } }).then((r) => r.data.items).catch(() => []),
+    ])
+      .then(([roi, burndown, agents]) => {
+        if (!cancelled) setData({ roi, burndown, agents });
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [period]);
+
+  if (loading) {
+    return (
+      <section className="mb-6 grid gap-3 lg:grid-cols-2">
+        <Skeleton className="h-48" />
+        <Skeleton className="h-48" />
+      </section>
+    );
+  }
+
+  // Flatten the per-currency revenue map for display.
+  const roiRows = data.roi.map((r) => ({
+    ...r,
+    revenueDisplay: Object.entries(r.revenueByCurrency || {})
+      .map(([cur, amt]) => `${cur} ${Number(amt).toLocaleString()}`)
+      .join(" · ") || "—",
+  }));
+
+  return (
+    <div className="mb-6 space-y-6">
+      {/* Source ROI + Agent productivity side by side */}
+      <div className="grid gap-3 lg:grid-cols-2">
+        <section>
+          <h2 className="mb-3 px-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+            Source ROI · {period}
+          </h2>
+          {roiRows.length === 0 ? (
+            <Card className="border-dashed">
+              <p className="p-8 text-center text-xs text-muted-foreground">
+                No leads with revenue attribution in this window.
+              </p>
+            </Card>
+          ) : (
+            <Card className="overflow-hidden">
+              <table className="min-w-full text-sm">
+                <thead className="border-b bg-muted/50 text-xs uppercase tracking-wider text-muted-foreground">
+                  <tr>
+                    <th className="px-4 py-2 text-left font-medium">Source</th>
+                    <th className="px-4 py-2 text-right font-medium">Leads</th>
+                    <th className="px-4 py-2 text-right font-medium">Won</th>
+                    <th className="px-4 py-2 text-right font-medium">Revenue</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {roiRows.map((s) => (
+                    <tr key={s.source} className="hover:bg-accent">
+                      <td className="px-4 py-2 font-mono text-xs">{s.source}</td>
+                      <Td>{s.total}</Td>
+                      <Td>{s.won}</Td>
+                      <td className="px-4 py-2 text-right font-medium">
+                        {s.revenueDisplay}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </Card>
+          )}
+        </section>
+
+        <section>
+          <h2 className="mb-3 px-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+            Agent productivity · {period}
+          </h2>
+          {data.agents.length === 0 ? (
+            <Card className="border-dashed">
+              <p className="p-8 text-center text-xs text-muted-foreground">
+                No agent activity in this window.
+              </p>
+            </Card>
+          ) : (
+            <Card className="overflow-hidden">
+              <table className="min-w-full text-sm">
+                <thead className="border-b bg-muted/50 text-xs uppercase tracking-wider text-muted-foreground">
+                  <tr>
+                    <th className="px-4 py-2 text-left font-medium">Agent</th>
+                    <th className="px-4 py-2 text-right font-medium">Open</th>
+                    <th className="px-4 py-2 text-right font-medium">Won</th>
+                    <th className="px-4 py-2 text-right font-medium">Lost</th>
+                    <th className="px-4 py-2 text-right font-medium">Win %</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {data.agents.map((a) => (
+                    <tr key={a.userId} className="hover:bg-accent">
+                      <td className="px-4 py-2">
+                        <div>{a.name}</div>
+                        <div className="text-[10px] text-muted-foreground">
+                          {a.role || "—"}
+                          {!a.active && (
+                            <span className="ml-2">(inactive)</span>
+                          )}
+                        </div>
+                      </td>
+                      <Td>{a.openAssigned}</Td>
+                      <Td>{a.won}</Td>
+                      <Td>{a.lost}</Td>
+                      <Td>{Math.round((a.winRate || 0) * 100)}%</Td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </Card>
+          )}
+        </section>
+      </div>
+
+      {/* Pipeline burndown — sparklines per stage */}
+      <section>
+        <h2 className="mb-3 px-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+          Pipeline burndown · last 30d
+          {data.burndown?.pipeline ? ` · ${data.burndown.pipeline.name}` : ""}
+        </h2>
+        {!data.burndown?.series?.length ? (
+          <Card className="border-dashed">
+            <p className="p-8 text-center text-xs text-muted-foreground">No burndown data.</p>
+          </Card>
+        ) : (
+          <Card>
+            <div className="space-y-3 p-4">
+              {data.burndown.stages.map((s) => (
+                <Sparkline
+                  key={s.id}
+                  stage={s}
+                  series={data.burndown.series}
+                />
+              ))}
+            </div>
+          </Card>
+        )}
+      </section>
+    </div>
+  );
+}
+
+// Inline SVG sparkline. Avoids pulling in a charting lib for a single
+// 30-point line per stage. ~80px tall, color-tinted by stage category.
+function Sparkline({ stage, series }) {
+  const values = series.map((d) => d.counts[stage.id] || 0);
+  const max = Math.max(1, ...values);
+  const w = 600;
+  const h = 36;
+  const stepX = w / Math.max(1, values.length - 1);
+  const points = values
+    .map((v, i) => `${(i * stepX).toFixed(1)},${(h - (v / max) * h).toFixed(1)}`)
+    .join(" ");
+  const stroke =
+    stage.category === "WON"
+      ? "#22c55e"
+      : stage.category === "LOST"
+      ? "#ef4444"
+      : stage.color || "#6366f1";
+  return (
+    <div className="grid grid-cols-12 items-center gap-3 text-xs">
+      <div className="col-span-3 flex items-center gap-1.5">
+        {stage.color && (
+          <span
+            className="h-2 w-2 rounded-full"
+            style={{ backgroundColor: stage.color }}
+          />
+        )}
+        <span className="truncate">{stage.name}</span>
+      </div>
+      <div className="col-span-7">
+        <svg viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" className="h-9 w-full">
+          <polyline points={points} fill="none" stroke={stroke} strokeWidth="2" />
+        </svg>
+      </div>
+      <div className="col-span-2 text-right font-mono text-muted-foreground">
+        {values[values.length - 1]} now · max {max}
+      </div>
     </div>
   );
 }
