@@ -88,9 +88,35 @@ client.on("message", async (msg) => {
   // Newsletter / channel messages have @newsletter suffix — same treatment.
   if (msg.from?.endsWith("@newsletter")) return;
 
+  // When the JID is an @lid (WhatsApp's privacy-first identifier) we
+  // attempt to resolve the underlying real phone via getContact(). For
+  // some LID contacts WhatsApp doesn't surface a real phone — in that
+  // case we leave contactPhone null and the consumer falls back to the
+  // JID so the unique-on-mobile constraint still holds.
+  let contactPhone = null;
+  if (msg.from?.endsWith("@lid")) {
+    try {
+      const contact = await msg.getContact();
+      const resolved = contact?.number;
+      // Sanity: must be all digits, reasonable phone length, and NOT
+      // equal to the LID's user part (avoids false-positives where
+      // .number is the LID itself).
+      if (
+        resolved &&
+        /^\d{7,15}$/.test(String(resolved)) &&
+        !msg.from.startsWith(`${resolved}@`)
+      ) {
+        contactPhone = String(resolved);
+      }
+    } catch (err) {
+      log.debug("getContact failed for LID sender", { from: msg.from, err: err.message });
+    }
+  }
+
   const payload = {
     waMessageId: msg.id?._serialized,
-    from: msg.from, // e.g. "919999999999@c.us"
+    from: msg.from, // routing JID; may be "919999999999@c.us" or "...@lid"
+    contactPhone, // resolved real phone for CRM display; null if LID-only
     body: msg.body || "",
     notifyName: msg._data?.notifyName || null,
     at: new Date(msg.timestamp ? msg.timestamp * 1000 : Date.now()).toISOString(),

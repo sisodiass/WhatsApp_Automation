@@ -43,23 +43,29 @@ async function getRuntimeSettings(tenantId) {
 
 // ─── Chat upsert + processing lock ────────────────────────────────────
 
-async function upsertChat(tenantId, phone, displayName) {
+// `phone` is the routing identifier (could be an @lid for privacy-mode
+// senders). `mobile` is the human-readable phone number we want to
+// store on the CRM Contact — falls back to `phone` when WhatsApp didn't
+// expose a real number. UI detects the @lid suffix on Contact.mobile
+// and renders such rows as "(private)".
+async function upsertChat(tenantId, phone, displayName, mobile = null) {
   const chat = await prisma.chat.upsert({
     where: { tenantId_phone: { tenantId, phone } },
     update: displayName ? { displayName } : {},
     create: { tenantId, phone, displayName },
   });
-  // M1: link the chat to a CRM Contact identity (idempotent — phone is
+  // M1: link the chat to a CRM Contact identity (idempotent — mobile is
   // the canonical key). Done in a separate step so a contact upsert
   // failure can't poison the message ingress path; we log and continue.
   if (!chat.contactId) {
     try {
+      const mobileForContact = mobile || phone;
       const contact = await prisma.contact.upsert({
-        where: { tenantId_mobile: { tenantId, mobile: phone } },
+        where: { tenantId_mobile: { tenantId, mobile: mobileForContact } },
         update: {},
         create: {
           tenantId,
-          mobile: phone,
+          mobile: mobileForContact,
           ...(displayName ? splitDisplayName(displayName) : {}),
           source: "whatsapp_inbound",
         },
@@ -219,13 +225,17 @@ async function dispatchSystemOutbound(messageId) {
  *
  * @param {object} ctx
  * @param {string} ctx.tenantId
- * @param {string} ctx.from   — wa jid like "919999999999@c.us"
+ * @param {string} ctx.from   — wa jid like "919999999999@c.us" or "...@lid"
+ * @param {string=} ctx.contactPhone — real phone number resolved by the
+ *                                       worker via msg.getContact() when
+ *                                       the JID is an @lid. null when
+ *                                       WhatsApp didn't surface one.
  * @param {string} ctx.body
  * @param {string} ctx.waMessageId — used for inbound dedup
  * @param {string=} ctx.displayName
  */
 export async function handleInbound(ctx) {
-  const { tenantId, from, body, waMessageId, displayName } = ctx;
+  const { tenantId, from, contactPhone, body, waMessageId, displayName } = ctx;
   const phone = fromWaJid(from);
   if (!phone) {
     log.debug("ignoring non-individual jid", { from });
@@ -236,7 +246,10 @@ export async function handleInbound(ctx) {
     return { skipped: "empty" };
   }
 
-  const chat = await upsertChat(tenantId, phone, displayName);
+  // Phone (routing) may be an @lid; mobile (CRM display) prefers the
+  // resolved real number, falling back to the routing id so the
+  // contact-mobile unique constraint still holds.
+  const chat = await upsertChat(tenantId, phone, displayName, contactPhone);
 
   // M4: link this inbound to any recent bulk-campaign send to the same
   // contact. Best-effort: if the contact has a SENT/DELIVERED recipient

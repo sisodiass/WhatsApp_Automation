@@ -361,7 +361,7 @@ export default function Contacts() {
                 {items.map((c) => (
                   <tr key={c.id} className="transition-colors hover:bg-accent">
                     <td className="px-4 py-3">{displayName(c)}</td>
-                    <td className="px-4 py-3 font-mono text-xs">{c.mobile}</td>
+                    <td className="px-4 py-3 font-mono text-xs">{formatMobile(c.mobile)}</td>
                     <td className="px-4 py-3 text-muted-foreground">{c.email || "—"}</td>
                     <td className="px-4 py-3 text-muted-foreground">{c.company || "—"}</td>
                     <td className="px-4 py-3 text-xs text-muted-foreground">{c.source || "—"}</td>
@@ -685,7 +685,19 @@ function emptyForm() {
 
 function displayName(c) {
   const n = [c.firstName, c.lastName].filter(Boolean).join(" ");
-  return n || c.mobile || "(no name)";
+  if (n) return n;
+  // Don't show the raw LID as a display name — it's a 15-digit
+  // synthetic id, useless to operators.
+  if (c.mobile && !c.mobile.endsWith("@lid")) return c.mobile;
+  return "(no name)";
+}
+
+// WhatsApp @lid contacts have no public phone number — show a
+// human-readable label instead of the meaningless synthetic id.
+function formatMobile(mobile) {
+  if (!mobile) return "—";
+  if (mobile.endsWith("@lid")) return "(WhatsApp private)";
+  return mobile;
 }
 
 function fieldLabel(f) {
