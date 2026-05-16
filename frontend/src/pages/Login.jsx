@@ -20,10 +20,28 @@ export default function Login() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
+  // M11.C2 — hide the "Sign up" link when the operator hasn't opened
+  // public signup. Best-effort: failed lookup just hides the link.
+  const [signupEnabled, setSignupEnabled] = useState(false);
 
   useEffect(() => {
     hydrate();
   }, [hydrate]);
+
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .get("/auth/signup-enabled")
+      .then(({ data }) => {
+        if (!cancelled) setSignupEnabled(Boolean(data?.enabled));
+      })
+      .catch(() => {
+        // ignore — link stays hidden
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   async function onSubmit(e) {
     e.preventDefault();
@@ -87,14 +105,26 @@ export default function Login() {
                 <LogIn className="h-4 w-4" />
                 {busy ? "Signing in…" : "Sign in"}
               </Button>
-              {/* M11.C1 */}
-              <div className="pt-1 text-center">
-                <Link
-                  to="/forgot-password"
-                  className="text-xs text-muted-foreground hover:text-foreground"
-                >
-                  Forgot your password?
-                </Link>
+              {/* M11.C1 + M11.C2 */}
+              <div className="space-y-1 pt-1 text-center">
+                <div>
+                  <Link
+                    to="/forgot-password"
+                    className="text-xs text-muted-foreground hover:text-foreground"
+                  >
+                    Forgot your password?
+                  </Link>
+                </div>
+                {signupEnabled && (
+                  <div>
+                    <Link
+                      to="/signup"
+                      className="text-xs text-muted-foreground hover:text-foreground"
+                    >
+                      No account? Create one
+                    </Link>
+                  </div>
+                )}
               </div>
             </form>
           </CardContent>

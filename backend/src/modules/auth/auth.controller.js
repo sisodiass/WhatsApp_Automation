@@ -1,11 +1,12 @@
 import bcrypt from "bcryptjs";
 import { z } from "zod";
 import { isProd, config } from "../../config/index.js";
-import { asyncHandler, BadRequest, Unauthorized } from "../../shared/errors.js";
+import { asyncHandler, BadRequest, Conflict, Forbidden, Unauthorized } from "../../shared/errors.js";
 import { prisma } from "../../shared/prisma.js";
 import { child } from "../../shared/logger.js";
 import { findUserById, findUserByEmail, publicUser } from "../users/user.service.js";
 import { sendEmail, renderNotificationEmail } from "../email/email.service.js";
+import { provisionTenant } from "../tenants/tenant-provisioning.service.js";
 import { createToken, consumeToken, DEFAULT_TTLS } from "./auth.tokens.js";
 import {
   issueAccessToken,
@@ -220,4 +221,144 @@ export const resendVerification = asyncHandler(async (req, res) => {
     authLog.warn("resend-verification send failed", { userId: user.id, err: err?.message });
   }
   return genericOk(res);
+});
+
+// ─── M11.C2 — SaaS signup ──────────────────────────────────────────
+//
+// Creates: Tenant → SUPER_ADMIN user → per-tenant scaffolding via
+// provisionTenant() → returns tokens (so the user lands signed-in on
+// the dashboard) + sends a verification email asynchronously.
+//
+// Gating: signup is OFF by default. The operator flips the
+// `tenant.signup_enabled` setting on the DEFAULT (operator-controlled)
+// tenant to open public signups. This keeps existing single-tenant
+// deploys safe from random tenant creation.
+//
+// Email-uniqueness is enforced at the User-table level: an email can
+// only belong to one tenant in the whole DB. This is intentional for
+// v1 — no multi-tenant memberships, no "join an org" flow yet.
+
+async function isSignupEnabled() {
+  // Read from the default tenant (operator-controlled). If no tenants
+  // exist yet (cold DB), signup must be allowed so the very first user
+  // can bootstrap.
+  const tenantCount = await prisma.tenant.count();
+  if (tenantCount === 0) return true;
+  // Convention: default tenant has the smallest createdAt (seed runs
+  // first). Operators can toggle via Settings.
+  const oldest = await prisma.tenant.findFirst({
+    orderBy: { createdAt: "asc" },
+    select: { id: true },
+  });
+  if (!oldest) return true;
+  const row = await prisma.setting.findUnique({
+    where: { tenantId_key: { tenantId: oldest.id, key: "tenant.signup_enabled" } },
+  });
+  return row?.value === true;
+}
+
+// Public — frontend uses this to show/hide the "Sign up" link.
+export const signupEnabled = asyncHandler(async (_req, res) => {
+  res.json({ enabled: await isSignupEnabled() });
+});
+
+// Slugify the org name into a unique tenant slug. Collisions get a
+// numeric suffix; we cap the loop so a pathological input can't run
+// forever.
+async function uniqueTenantSlug(orgName) {
+  const base = String(orgName)
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[^\w\s-]/g, "")
+    .trim()
+    .replace(/\s+/g, "-")
+    .slice(0, 40) || "org";
+  let slug = base;
+  for (let i = 0; i < 50; i++) {
+    const existing = await prisma.tenant.findUnique({ where: { slug } });
+    if (!existing) return slug;
+    slug = `${base}-${i + 2}`;
+  }
+  // Fallback to a random suffix; effectively never collides.
+  return `${base}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+const signupSchema = z.object({
+  email: z.string().email(),
+  password: z.string().min(8, "password must be 8+ chars").max(200),
+  fullName: z.string().min(1).max(120),
+  orgName: z.string().min(1).max(120),
+});
+
+export const signup = asyncHandler(async (req, res) => {
+  const parsed = signupSchema.safeParse(req.body);
+  if (!parsed.success) {
+    throw BadRequest("invalid signup payload", parsed.error.flatten());
+  }
+  const { email, password, fullName, orgName } = parsed.data;
+
+  if (!(await isSignupEnabled())) {
+    throw Forbidden(
+      "signup is disabled — contact your administrator to open public signups",
+    );
+  }
+
+  // Email uniqueness — surface as 409 Conflict, not Unauthorized, so
+  // the frontend can render a friendly "email already in use" error.
+  const dupe = await prisma.user.findUnique({ where: { email } });
+  if (dupe) throw Conflict("an account with this email already exists");
+
+  const slug = await uniqueTenantSlug(orgName);
+  const passwordHash = await bcrypt.hash(password, 12);
+
+  // Create Tenant + User atomically — if anything in the txn fails the
+  // partial tenant doesn't linger. Provisioning runs after commit so
+  // its idempotent helpers don't deadlock on uncommitted rows.
+  const { tenant, user } = await prisma.$transaction(async (tx) => {
+    const t = await tx.tenant.create({
+      data: { slug, name: String(orgName).slice(0, 120) },
+    });
+    const u = await tx.user.create({
+      data: {
+        tenantId: t.id,
+        email,
+        passwordHash,
+        name: String(fullName).slice(0, 120),
+        role: "SUPER_ADMIN",
+      },
+    });
+    return { tenant: t, user: u };
+  });
+
+  // Provision the new tenant's scaffolding. Failure here is unusual but
+  // we don't want to leave the user with an empty workspace — surface
+  // as 500. The earlier transaction is committed so the user exists;
+  // they can retry by deleting + recreating if it persists.
+  await provisionTenant(tenant.id, { includeTestCampaign: false });
+
+  // Fire-and-forget verify email. Failures don't block signup —
+  // operator can resend later.
+  try {
+    const token = await createToken({ userId: user.id, kind: "VERIFY_EMAIL" });
+    await sendVerifyEmail(user, token);
+  } catch (err) {
+    authLog.warn("signup verify-email send failed (non-fatal)", {
+      userId: user.id,
+      err: err?.message,
+    });
+  }
+
+  const accessToken = issueAccessToken(user);
+  const refreshToken = issueRefreshToken(user);
+  res.cookie(REFRESH_COOKIE, refreshToken, refreshCookieOptions());
+  authLog.info("signup completed", {
+    userId: user.id,
+    tenantId: tenant.id,
+    slug: tenant.slug,
+  });
+  res.status(201).json({
+    accessToken,
+    user: publicUser(user),
+    tenant: { id: tenant.id, slug: tenant.slug, name: tenant.name },
+  });
 });

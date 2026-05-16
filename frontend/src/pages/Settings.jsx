@@ -176,6 +176,10 @@ const META = {
     label: "Postmark server token",
     help: "Encrypted at rest. Get one from your Postmark server's API tokens page. Only used when email.provider is 'postmark'.",
   },
+  "tenant.signup_enabled": {
+    label: "Allow public signup (SaaS mode)",
+    help: "When ON, anyone can create a new organization via /signup and become its SUPER_ADMIN. Default OFF — existing single-tenant deploys stay safe. Flip ON only when you're running this as a multi-tenant SaaS and want to accept self-service signups.",
+  },
   "microsoft.tenant_id": {
     label: "Microsoft tenant ID",
     help: "Azure AD tenant GUID for the app registration used by the Teams demo-booking flow.",

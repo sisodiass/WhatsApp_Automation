@@ -16,6 +16,8 @@ export const Forbidden = (msg = "forbidden") => new AppError(msg, 403, "forbidde
 export const NotFound = (msg = "not found") => new AppError(msg, 404, "not_found");
 export const BadRequest = (msg = "bad request", details) =>
   new AppError(msg, 400, "bad_request", details);
+export const Conflict = (msg = "conflict", details) =>
+  new AppError(msg, 409, "conflict", details);
 
 // Express requires the 4-arg signature so it recognises this as an error middleware.
 // eslint-disable-next-line no-unused-vars
