@@ -148,6 +148,34 @@ const META = {
     label: "Negative-sentiment keywords (CSV)",
     help: "Comma-separated phrases. Only consulted when the toggle above is ON. Tune for your customer base — e.g. industries with high refund volume should remove 'refund'.",
   },
+  "email.enabled": {
+    label: "Email notifications",
+    help: "Master switch. When OFF, no notification ever triggers an email regardless of email.notify_kinds. Default ON.",
+  },
+  "email.provider": {
+    label: "Email provider",
+    help: "Which transactional email service to use. 'stub' is a safe no-op that records sends in memory — fine for dev. Switch to resend or postmark in production after pasting credentials below.",
+  },
+  "email.from_address": {
+    label: "From address",
+    help: "The 'From:' email address used on every outbound email. Must be a verified sender in your provider's dashboard (Resend: domain verification; Postmark: sender signature).",
+  },
+  "email.from_name": {
+    label: "From name",
+    help: "Display name shown in the recipient's inbox. Defaults to 'SalesAutomation'.",
+  },
+  "email.notify_kinds": {
+    label: "Notification kinds that also email (CSV)",
+    help: "Which notification kinds trigger an email alongside the in-app bell. Default: JOB_FAILED,WEBHOOK_FAILED,AI_QUOTATION_REVIEW. Routine kinds like LEAD_ASSIGNED stay in-app only by design.",
+  },
+  "email.resend.api_key": {
+    label: "Resend API key",
+    help: "Encrypted at rest. Get one at resend.com/api-keys. Only used when email.provider is 'resend'.",
+  },
+  "email.postmark.server_token": {
+    label: "Postmark server token",
+    help: "Encrypted at rest. Get one from your Postmark server's API tokens page. Only used when email.provider is 'postmark'.",
+  },
   "microsoft.tenant_id": {
     label: "Microsoft tenant ID",
     help: "Azure AD tenant GUID for the app registration used by the Teams demo-booking flow.",
@@ -240,6 +268,7 @@ const ENUMS = {
   "ai.provider": ["openai", "gemini", "claude"],
   "ai.embedding_provider": ["openai", "gemini"],
   "payments.default_provider": ["STUB", "RAZORPAY", "STRIPE"],
+  "email.provider": ["stub", "resend", "postmark"],
 };
 
 export default function Settings() {

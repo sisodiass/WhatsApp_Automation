@@ -21,6 +21,7 @@
 
 import { prisma } from "./prisma.js";
 import { child } from "./logger.js";
+import { maybeEmailNotification } from "../modules/email/email.dispatcher.js";
 
 const log = child("job-failure-alerts");
 
@@ -83,6 +84,17 @@ export async function notifyOnTerminalJobFailure(job, err, opts) {
       tenantId,
       recipients: admins.length,
       err: err?.message,
+    });
+
+    // M11.D5: also email when this kind is in email.notify_kinds.
+    // Dispatcher swallows its own errors; never throws.
+    await maybeEmailNotification({
+      tenantId,
+      userIds: admins.map((u) => u.id),
+      kind: "JOB_FAILED",
+      title,
+      body,
+      url: null,
     });
   } catch (alertErr) {
     // Swallow — alerting must not mask the original failure.

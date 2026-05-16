@@ -105,6 +105,20 @@ async function main() {
       value:
         "frustrated,angry,furious,terrible,awful,unacceptable,refund,cancel my,disappointed,unhappy,worst,useless,scam,fraud,complaint,lawsuit",
     },
+    // M11.D5 — transactional email defaults. Provider starts at "stub"
+    // so no real send happens until an operator configures credentials.
+    // Only critical kinds email by default — routine notifications stay
+    // in-app to avoid inbox spam.
+    { key: "email.enabled", value: true },
+    { key: "email.provider", value: "stub" },
+    { key: "email.from_address", value: "noreply@local.test" },
+    { key: "email.from_name", value: "SalesAutomation" },
+    {
+      key: "email.notify_kinds",
+      value: "JOB_FAILED,WEBHOOK_FAILED,AI_QUOTATION_REVIEW",
+    },
+    { key: "email.resend.api_key", value: "", encrypted: true },
+    { key: "email.postmark.server_token", value: "", encrypted: true },
     // Microsoft Graph (Teams demo booking — Phase 9). Seeded as empty
     // placeholders so the "Microsoft Teams" section renders in Settings UI
     // even before the operator fills them. Until all four are set, demo
