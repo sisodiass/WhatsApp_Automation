@@ -50,6 +50,8 @@ const WRITABLE = new Set([
   "email.notify_kinds",
   "email.resend.api_key",
   "email.postmark.server_token",
+  // M11.C2 — SaaS signup gate
+  "tenant.signup_enabled",
   // Microsoft Graph (Phase 9)
   "microsoft.tenant_id",
   "microsoft.client_id",

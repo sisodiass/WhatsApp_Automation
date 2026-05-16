@@ -7,6 +7,8 @@ import {
   refresh,
   resendVerification,
   resetPassword,
+  signup,
+  signupEnabled,
   verifyEmail,
 } from "./auth.controller.js";
 import { requireAuth, requireRole } from "./auth.middleware.js";
@@ -27,6 +29,12 @@ authRouter.post("/forgot-password", forgotPassword);
 authRouter.post("/reset-password", resetPassword);
 authRouter.post("/verify-email", verifyEmail);
 authRouter.post("/resend-verification", resendVerification);
+
+// M11.C2 — SaaS signup. Public. /signup creates Tenant + SUPER_ADMIN
+// user + per-tenant scaffolding and returns tokens. /signup-enabled
+// lets the frontend show/hide the link without exposing the setting.
+authRouter.get("/signup-enabled", signupEnabled);
+authRouter.post("/signup", signup);
 
 // Demo endpoint to prove RBAC works (used in Phase 1 acceptance check).
 authRouter.get(

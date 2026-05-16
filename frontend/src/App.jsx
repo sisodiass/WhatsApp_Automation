@@ -4,6 +4,7 @@ import Login from "./pages/Login.jsx";
 import ForgotPassword from "./pages/ForgotPassword.jsx";
 import ResetPassword from "./pages/ResetPassword.jsx";
 import VerifyEmail from "./pages/VerifyEmail.jsx";
+import Signup from "./pages/Signup.jsx";
 import Dashboard from "./pages/Dashboard.jsx";
 import Whatsapp from "./pages/Whatsapp.jsx";
 import Campaigns from "./pages/Campaigns.jsx";
@@ -54,6 +55,8 @@ export default function App() {
       <Route path="/forgot-password" element={<ForgotPassword />} />
       <Route path="/reset-password" element={<ResetPassword />} />
       <Route path="/verify-email" element={<VerifyEmail />} />
+      {/* M11.C2 — public signup. Gated server-side by tenant.signup_enabled. */}
+      <Route path="/signup" element={<Signup />} />
 
       {/* All protected pages share the persistent AppShell (sidebar). */}
       <Route
