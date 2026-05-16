@@ -10,10 +10,14 @@ export const Channels = {
   INBOUND: "wa:inbound",       // payload: { waMessageId, from, body, at: ISO, ack }
   HEARTBEAT: "wa:heartbeat",   // payload: { at: ISO, state, uptimeMs }
   OUTBOUND_ACK: "wa:outbound_ack", // payload: { messageId, ok, error? }
+  // M11 LID-backfill: request/response pair so the API can ask the
+  // worker for contact info by JID. Used by the admin backfill endpoint.
+  CONTACT_QUERY_RESPONSE: "wa:contact_query_response", // { requestId, ok, number?, pushname?, error? }
 
   // API → wa-worker
   OUTBOUND: "wa:outbound",     // payload: { messageId, to, body, simulateTyping?: ms }
   CONTROL: "wa:control",       // payload: { action: "logout" | "restart" }
+  CONTACT_QUERY: "wa:contact_query", // { requestId, jid }
 };
 
 // Status states emitted by wa-worker. Keep in sync with whatsapp.worker.js.

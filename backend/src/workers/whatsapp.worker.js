@@ -128,7 +128,37 @@ client.on("message", async (msg) => {
 
 // ─── Outbound + control subscriber ───────────────────────────────────
 
-subscribe([Channels.OUTBOUND, Channels.CONTROL], async (channel, payload) => {
+subscribe([Channels.OUTBOUND, Channels.CONTROL, Channels.CONTACT_QUERY], async (channel, payload) => {
+  if (channel === Channels.CONTACT_QUERY) {
+    const { requestId, jid } = payload || {};
+    if (!requestId || !jid) return;
+    if (lastState !== Status.READY) {
+      await publish(Channels.CONTACT_QUERY_RESPONSE, {
+        requestId,
+        ok: false,
+        error: `wa not ready (${lastState})`,
+      });
+      return;
+    }
+    try {
+      const contact = await client.getContactById(jid);
+      const number = contact?.number || null;
+      const pushname = contact?.pushname || null;
+      await publish(Channels.CONTACT_QUERY_RESPONSE, {
+        requestId,
+        ok: true,
+        number,
+        pushname,
+      });
+    } catch (err) {
+      await publish(Channels.CONTACT_QUERY_RESPONSE, {
+        requestId,
+        ok: false,
+        error: err.message,
+      });
+    }
+    return;
+  }
   if (channel === Channels.OUTBOUND) {
     const { messageId, to, body, simulateTyping } = payload || {};
     if (!to || !body) {

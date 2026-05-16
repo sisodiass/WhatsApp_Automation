@@ -4,6 +4,7 @@ import {
   Download,
   ExternalLink,
   Plus,
+  RefreshCcw,
   Search,
   Trash2,
   Upload,
@@ -53,6 +54,8 @@ export default function Contacts() {
   // Import modal state
   const [importing, setImporting] = useState(null); // { file, rows, headers, mapping }
   const [importResult, setImportResult] = useState(null);
+  // M11 LID-backfill — refresh @lid contacts via the live WA worker.
+  const [refreshingLid, setRefreshingLid] = useState(false);
   const [mappableFields, setMappableFields] = useState(FALLBACK_FIELDS);
   const fileRef = useRef(null);
 
@@ -289,6 +292,38 @@ export default function Contacts() {
     }
   }
 
+  // M11 LID-backfill — POST to the admin endpoint, summarize the result,
+  // reload the table. Bounded server-side; safe to click repeatedly to
+  // chew through a large backlog 50 rows at a time.
+  async function refreshLidContacts() {
+    setRefreshingLid(true);
+    try {
+      const { data } = await api.post("/admin/wa/refresh-lid-contacts");
+      const parts = [];
+      if (data.updated) parts.push(`${data.updated} updated`);
+      if (data.resolvedPhones)
+        parts.push(`${data.resolvedPhones} real phone${data.resolvedPhones === 1 ? "" : "s"}`);
+      if (data.resolvedNames) parts.push(`${data.resolvedNames} names`);
+      if (data.failed) parts.push(`${data.failed} failed`);
+      const summary = parts.length ? parts.join(" · ") : "nothing to update";
+      if (data.workerUnavailable) {
+        toast.error("WhatsApp worker is not READY — start it and try again.");
+      } else if (data.checked === 0) {
+        toast.success("No @lid contacts left to refresh.");
+      } else {
+        toast.success(`Checked ${data.checked}: ${summary}`);
+      }
+      if (data.moreCandidatesLikely) {
+        toast.success("More remaining — click again to continue.");
+      }
+      await load();
+    } catch (err) {
+      toast.error(err.response?.data?.error?.message || "Refresh failed");
+    } finally {
+      setRefreshingLid(false);
+    }
+  }
+
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   return (
@@ -308,6 +343,20 @@ export default function Contacts() {
             {canImport && (
               <Button size="sm" variant="outline" onClick={openImport}>
                 <Upload className="h-3.5 w-3.5" /> Import
+              </Button>
+            )}
+            {canImport && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={refreshLidContacts}
+                disabled={refreshingLid}
+                title="Ask the WhatsApp worker to refresh contact info for @lid rows whose real phone we couldn't resolve at first inbound."
+              >
+                <RefreshCcw
+                  className={`h-3.5 w-3.5 ${refreshingLid ? "animate-spin" : ""}`}
+                />
+                {refreshingLid ? "Refreshing…" : "Refresh @lid"}
               </Button>
             )}
             <Button size="sm" onClick={openNew}>

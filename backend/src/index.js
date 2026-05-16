@@ -51,6 +51,7 @@ import { metaWebhookRouter } from "./modules/channels/meta-webhook.routes.js";
 import { integrationRouter } from "./modules/integrations/integration.routes.js";
 import { publicRouter } from "./modules/public/public.routes.js";
 import { mountBullBoard } from "./modules/admin/queues.routes.js";
+import { waMaintenanceRouter } from "./modules/admin/wa-maintenance.routes.js";
 // M11 revenue: products, pricing rules, quotations, payments, invoices.
 import { productRouter, pricingRuleRouter } from "./modules/products/product.routes.js";
 import { quotationRouter } from "./modules/quotations/quotation.routes.js";
@@ -154,6 +155,9 @@ app.use("/api/webhooks/meta", cors({ origin: true, credentials: false }), metaWe
 // signature-verified, raw-body captured in the verify hook above.
 app.use("/api/webhooks/payments", cors({ origin: true, credentials: false }), paymentWebhookRouter);
 // M11: Authenticated admin endpoints.
+// WhatsApp maintenance routes (SUPER_ADMIN/ADMIN only — reach into
+// the live worker session + modify CRM rows).
+app.use("/api/admin/wa", waMaintenanceRouter);
 app.use("/api/products", productRouter);
 app.use("/api/pricing-rules", pricingRuleRouter);
 app.use("/api/quotations", quotationRouter);
