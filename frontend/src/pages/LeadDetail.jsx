@@ -183,6 +183,7 @@ export default function LeadDetail() {
   const realMobile = c?.mobile && !c.mobile.endsWith("@lid") ? c.mobile : null;
   const name =
     [c?.firstName, c?.lastName].filter(Boolean).join(" ") ||
+    c?.notifyName ||
     realMobile ||
     "(no name)";
   const stagesForPipeline = pipelines.find((p) => p.id === lead.pipelineId)?.stages || [];

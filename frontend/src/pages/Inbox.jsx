@@ -191,9 +191,14 @@ export default function Inbox() {
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2">
                           <span className="truncate text-sm font-semibold">
-                            {c.displayName || c.phone}
+                            {c.displayName ||
+                              (c.phone?.endsWith("@lid")
+                                ? "(WhatsApp private)"
+                                : c.phone)}
                           </span>
-                          <span className="text-xs text-muted-foreground">{c.phone}</span>
+                          <span className="text-xs text-muted-foreground">
+                            {c.phone?.endsWith("@lid") ? "(WhatsApp private)" : c.phone}
+                          </span>
                           {queueCount > 0 && (
                             <Badge variant="warning">{queueCount} unresolved</Badge>
                           )}

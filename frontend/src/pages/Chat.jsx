@@ -180,9 +180,12 @@ export default function Chat() {
             ) : (
               <>
                 <div className="truncate text-sm font-semibold">
-                  {chat.displayName || chat.phone}
+                  {chat.displayName ||
+                    (chat.phone?.endsWith("@lid") ? "(WhatsApp private)" : chat.phone)}
                 </div>
-                <div className="truncate text-xs text-muted-foreground">{chat.phone}</div>
+                <div className="truncate text-xs text-muted-foreground">
+                  {chat.phone?.endsWith("@lid") ? "(WhatsApp private)" : chat.phone}
+                </div>
               </>
             )}
           </div>

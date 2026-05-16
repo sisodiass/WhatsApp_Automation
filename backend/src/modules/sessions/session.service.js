@@ -48,6 +48,14 @@ async function getRuntimeSettings(tenantId) {
 // store on the CRM Contact — falls back to `phone` when WhatsApp didn't
 // expose a real number. UI detects the @lid suffix on Contact.mobile
 // and renders such rows as "(private)".
+//
+// `displayName` is the customer's WhatsApp push-name. We persist it on
+// Contact.notifyName for EVERY inbound (not just first contact) so the
+// UI always has a humanized label to fall back on when firstName +
+// lastName are empty — especially important for @lid contacts whose
+// real phone we couldn't resolve. firstName/lastName are still only
+// populated at first-contact, to avoid clobbering an operator's manual
+// edits later.
 async function upsertChat(tenantId, phone, displayName, mobile = null) {
   const chat = await prisma.chat.upsert({
     where: { tenantId_phone: { tenantId, phone } },
@@ -62,10 +70,11 @@ async function upsertChat(tenantId, phone, displayName, mobile = null) {
       const mobileForContact = mobile || phone;
       const contact = await prisma.contact.upsert({
         where: { tenantId_mobile: { tenantId, mobile: mobileForContact } },
-        update: {},
+        update: displayName ? { notifyName: displayName } : {},
         create: {
           tenantId,
           mobile: mobileForContact,
+          notifyName: displayName || null,
           ...(displayName ? splitDisplayName(displayName) : {}),
           source: "whatsapp_inbound",
         },
@@ -85,6 +94,20 @@ async function upsertChat(tenantId, phone, displayName, mobile = null) {
     } catch (err) {
       log.warn("contact upsert failed (continuing)", { phone, err: err.message });
     }
+  } else if (displayName) {
+    // Existing contact — refresh notifyName so the UI's fallback label
+    // stays current. Best-effort.
+    prisma.contact
+      .update({
+        where: { id: chat.contactId },
+        data: { notifyName: displayName },
+      })
+      .catch((err) =>
+        log.debug("notifyName refresh failed (continuing)", {
+          contactId: chat.contactId,
+          err: err.message,
+        }),
+      );
   }
   return chat;
 }
