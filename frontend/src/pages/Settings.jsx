@@ -16,6 +16,16 @@ const GROUPS = [
   { id: "session", label: "Session", help: "Reset window, resume window." },
   { id: "wa", label: "WhatsApp", help: "Send delays, outbound rate limit, warmup mode." },
   { id: "manual_queue", label: "Manual Queue", help: "SLA threshold for queue UI highlighting." },
+  {
+    id: "handover",
+    label: "Confidence-driven handover",
+    help: "Keyword-driven auto-flip to MANUAL. Human-request defaults ON; negative-sentiment is opt-in.",
+  },
+  {
+    id: "email",
+    label: "Email notifications",
+    help: "Transactional email provider + which notification kinds also email admin users.",
+  },
   { id: "microsoft", label: "Microsoft Teams", help: "Graph API credentials for demo booking." },
   {
     id: "payments",
@@ -28,6 +38,11 @@ const GROUPS = [
     help: "Numbering, default validity, tax, approval threshold, default terms.",
   },
   { id: "invoices", label: "Invoices", help: "Invoice numbering." },
+  {
+    id: "tenant",
+    label: "Tenant",
+    help: "Workspace-level toggles, including public-signup gating.",
+  },
 ];
 
 // Friendly labels + tooltip help text per key.
