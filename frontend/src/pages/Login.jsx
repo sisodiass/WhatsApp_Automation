@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { LogIn } from "lucide-react";
 import { api } from "../lib/api.js";
 import { useAuthStore } from "../stores/authStore.js";
@@ -87,6 +87,15 @@ export default function Login() {
                 <LogIn className="h-4 w-4" />
                 {busy ? "Signing in…" : "Sign in"}
               </Button>
+              {/* M11.C1 */}
+              <div className="pt-1 text-center">
+                <Link
+                  to="/forgot-password"
+                  className="text-xs text-muted-foreground hover:text-foreground"
+                >
+                  Forgot your password?
+                </Link>
+              </div>
             </form>
           </CardContent>
         </Card>

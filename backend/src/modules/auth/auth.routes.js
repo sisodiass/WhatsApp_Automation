@@ -1,5 +1,14 @@
 import { Router } from "express";
-import { login, refresh, me, logout } from "./auth.controller.js";
+import {
+  forgotPassword,
+  login,
+  logout,
+  me,
+  refresh,
+  resendVerification,
+  resetPassword,
+  verifyEmail,
+} from "./auth.controller.js";
 import { requireAuth, requireRole } from "./auth.middleware.js";
 
 export const authRouter = Router();
@@ -8,6 +17,16 @@ authRouter.post("/login", login);
 authRouter.post("/refresh", refresh);
 authRouter.post("/logout", logout);
 authRouter.get("/me", requireAuth, me);
+
+// M11.C1 — password reset + email verification. All four are PUBLIC.
+// The two "request" endpoints (forgot-password, resend-verification)
+// always return 200 even when the email isn't registered, to prevent
+// account enumeration. The two "consume" endpoints (reset-password,
+// verify-email) validate the token and return BadRequest on failure.
+authRouter.post("/forgot-password", forgotPassword);
+authRouter.post("/reset-password", resetPassword);
+authRouter.post("/verify-email", verifyEmail);
+authRouter.post("/resend-verification", resendVerification);
 
 // Demo endpoint to prove RBAC works (used in Phase 1 acceptance check).
 authRouter.get(
