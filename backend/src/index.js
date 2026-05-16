@@ -52,7 +52,7 @@ import { integrationRouter } from "./modules/integrations/integration.routes.js"
 import { publicRouter } from "./modules/public/public.routes.js";
 import { mountBullBoard } from "./modules/admin/queues.routes.js";
 import { waMaintenanceRouter } from "./modules/admin/wa-maintenance.routes.js";
-import { billingPublicRouter, billingRouter } from "./modules/billing/billing.routes.js";
+import { billingPublicRouter, billingRouter, billingWebhookRouter } from "./modules/billing/billing.routes.js";
 // M11 revenue: products, pricing rules, quotations, payments, invoices.
 import { productRouter, pricingRuleRouter } from "./modules/products/product.routes.js";
 import { quotationRouter } from "./modules/quotations/quotation.routes.js";
@@ -84,7 +84,12 @@ app.use(express.json({
       req.originalUrl?.startsWith("/api/webhooks/meta/") ||
       // M11: payment provider webhooks (Razorpay HMAC-SHA256, Stripe
       // t=...,v1=...). Both need the unparsed bytes for signature verify.
-      req.originalUrl?.startsWith("/api/webhooks/payments/")
+      req.originalUrl?.startsWith("/api/webhooks/payments/") ||
+      // M11.C3b: Stripe Billing webhooks (subscription lifecycle).
+      // Same Stripe-Signature scheme as the payments webhook but a
+      // different webhook secret (operators configure a separate
+      // endpoint in Stripe → Dashboard → Developers → Webhooks).
+      req.originalUrl?.startsWith("/api/webhooks/billing/")
     ) {
       req.rawBody = buf;
     }
@@ -155,6 +160,11 @@ app.use("/api/webhooks/meta", cors({ origin: true, credentials: false }), metaWe
 // M11: Payment webhooks (Razorpay, Stripe, stub). Same model — public,
 // signature-verified, raw-body captured in the verify hook above.
 app.use("/api/webhooks/payments", cors({ origin: true, credentials: false }), paymentWebhookRouter);
+// M11.C3b: Stripe Billing webhooks (subscription lifecycle). Separate
+// router from the payment webhooks because the webhook secret + the
+// event types are different — Stripe lets operators configure
+// multiple endpoints with their own secret per endpoint.
+app.use("/api/webhooks/billing", cors({ origin: true, credentials: false }), billingWebhookRouter);
 // M11: Authenticated admin endpoints.
 // WhatsApp maintenance routes (SUPER_ADMIN/ADMIN only — reach into
 // the live worker session + modify CRM rows).

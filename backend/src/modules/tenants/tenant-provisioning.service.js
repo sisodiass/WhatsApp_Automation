@@ -100,6 +100,13 @@ const DEFAULT_SETTINGS = [
   // deploys stay safe. Operators flip it ON via Settings when they
   // want to open public signups (or set it tenant-by-tenant via DB).
   { key: "tenant.signup_enabled", value: false },
+  // M11.C3b: Stripe Billing. Seeded as empty so the Billing factory
+  // falls through to STUB until an operator pastes their real keys.
+  // The webhook_secret must match the one Stripe assigns when you
+  // create the webhook endpoint in Stripe → Developers → Webhooks.
+  { key: "billing.stripe.publishable_key", value: "", encrypted: true },
+  { key: "billing.stripe.secret_key", value: "", encrypted: true },
+  { key: "billing.stripe.webhook_secret", value: "", encrypted: true },
 ];
 
 const DEFAULT_TEMPLATES = [

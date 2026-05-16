@@ -3,9 +3,11 @@
 // available plans. Upgrade/downgrade flow comes in C.3b (Stripe Checkout).
 
 import { useEffect, useState } from "react";
-import { Check, CreditCard } from "lucide-react";
+import { Check, CreditCard, ExternalLink } from "lucide-react";
 import { api } from "../lib/api.js";
+import { toast } from "../stores/toastStore.js";
 import { PageHeader } from "../components/ui/PageHeader.jsx";
+import { Button } from "../components/ui/Button.jsx";
 import { Card, CardContent } from "../components/ui/Card.jsx";
 import { Skeleton } from "../components/ui/Skeleton.jsx";
 import { cn } from "../lib/cn.js";
@@ -66,8 +68,9 @@ export default function Billing() {
                   ))}
                 </div>
                 <p className="mt-4 text-center text-xs text-muted-foreground">
-                  Upgrade / downgrade flow ships with the Stripe integration in
-                  the next release.
+                  Free / enterprise tiers don't go through Checkout. Plans
+                  without a Stripe price configured are operator-managed —
+                  ask your admin to wire them up.
                 </p>
               </section>
             </>
@@ -80,6 +83,23 @@ export default function Billing() {
 
 function CurrentPlanCard({ sub }) {
   const renewsAt = sub.currentPeriodEnd ? new Date(sub.currentPeriodEnd) : null;
+  const [portalBusy, setPortalBusy] = useState(false);
+
+  async function openPortal() {
+    setPortalBusy(true);
+    try {
+      const { data } = await api.post("/billing/portal");
+      if (data?.url) {
+        window.location.href = data.url;
+      } else {
+        toast.error("Portal didn't return a URL");
+      }
+    } catch (err) {
+      toast.error(err.response?.data?.error?.message || "Couldn't open billing portal");
+      setPortalBusy(false);
+    }
+  }
+
   return (
     <Card>
       <CardContent className="p-5">
@@ -123,6 +143,16 @@ function CurrentPlanCard({ sub }) {
             })}
           </p>
         )}
+        {/* Stripe Customer Portal — only when the tenant has a customer
+            on file (i.e. completed at least one Checkout). */}
+        {sub.hasStripeCustomer && (
+          <div className="mt-4 flex justify-end">
+            <Button size="sm" variant="outline" onClick={openPortal} disabled={portalBusy}>
+              <ExternalLink className="h-3.5 w-3.5" />
+              {portalBusy ? "Opening…" : "Manage subscription"}
+            </Button>
+          </div>
+        )}
       </CardContent>
     </Card>
   );
@@ -130,6 +160,42 @@ function CurrentPlanCard({ sub }) {
 
 function PlanCard({ plan, current }) {
   const isFree = plan.monthlyPriceCents === 0;
+  const [busy, setBusy] = useState(false);
+  const canCheckout = !current && !isFree && plan.hasStripePrice;
+
+  async function choose() {
+    setBusy(true);
+    try {
+      const { data } = await api.post("/billing/checkout", { planSlug: plan.slug });
+      if (data?.url) {
+        window.location.href = data.url;
+      } else {
+        toast.error("Checkout didn't return a URL");
+      }
+    } catch (err) {
+      toast.error(err.response?.data?.error?.message || "Couldn't start checkout");
+      setBusy(false);
+    }
+  }
+
+  let ctaLabel = "Choose";
+  let ctaTitle;
+  if (current) {
+    ctaLabel = "Current";
+  } else if (isFree && plan.slug === "free") {
+    ctaLabel = "Default";
+    ctaTitle = "All new signups land here automatically.";
+  } else if (isFree) {
+    ctaLabel = "Contact us";
+    ctaTitle = "Custom plans aren't self-serve — reach out to discuss.";
+  } else if (!plan.hasStripePrice) {
+    ctaLabel = "Not yet available";
+    ctaTitle =
+      "Operator hasn't pasted a Stripe Price ID for this plan yet. PATCH /api/billing/plans/" +
+      plan.slug +
+      " { stripePriceId: 'price_xxx' }";
+  }
+
   return (
     <Card className={cn("relative", current && "border-primary")}>
       <CardContent className="flex h-full flex-col p-5">
@@ -164,14 +230,19 @@ function PlanCard({ plan, current }) {
             </li>
           ))}
         </ul>
-        {/* Upgrade CTA placeholder — wired in C.3b. */}
         <button
           type="button"
-          disabled
-          className="mt-4 rounded-md border bg-muted/40 px-3 py-1.5 text-xs font-medium text-muted-foreground"
-          title="Upgrade flow ships with Stripe in the next release."
+          disabled={!canCheckout || busy}
+          onClick={canCheckout ? choose : undefined}
+          title={ctaTitle}
+          className={cn(
+            "mt-4 rounded-md border px-3 py-1.5 text-xs font-medium",
+            canCheckout
+              ? "bg-primary text-primary-foreground hover:bg-primary/90"
+              : "bg-muted/40 text-muted-foreground",
+          )}
         >
-          {current ? "Current" : "Choose"}
+          {busy ? "Redirecting…" : ctaLabel}
         </button>
       </CardContent>
     </Card>

@@ -1548,3 +1548,24 @@ model Subscription {
   @@index([currentPeriodEnd]) // for dunning sweep
   @@map("subscriptions")
 }
+
+// M11.C3b — webhook event dedup. Stripe is at-least-once; we want
+// exactly-once side effects (e.g. don't move a tenant to PAST_DUE
+// twice in a row). Each event is inserted on first receipt; the
+// unique constraint short-circuits retries.
+model BillingWebhookEvent {
+  id              String   @id @default(cuid())
+  // The provider's event id (e.g. Stripe "evt_1Ab2..."). Unique.
+  providerEventId String   @unique @map("provider_event_id")
+  provider        String   // "STRIPE" today; future providers go here too
+  type            String   // "checkout.session.completed", etc.
+  // Tenant impacted by the event (null when we couldn't determine,
+  // e.g. before a subscription is linked to a tenant).
+  tenantId        String?  @map("tenant_id")
+  rawPayload      Json     @map("raw_payload")
+  processedAt     DateTime @default(now()) @map("processed_at")
+
+  @@index([provider, type])
+  @@index([tenantId])
+  @@map("billing_webhook_events")
+}
