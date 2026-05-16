@@ -9,6 +9,7 @@ import bcrypt from "bcryptjs";
 import crypto from "node:crypto";
 import dotenv from "dotenv";
 import { provisionTenant } from "../src/modules/tenants/tenant-provisioning.service.js";
+import { seedDefaultPlans } from "../src/modules/billing/billing.service.js";
 
 dotenv.config({ path: "../.env" });
 dotenv.config(); // also try backend/.env
@@ -60,16 +61,25 @@ async function main() {
     console.log("");
   }
 
-  // 3-7. Settings, templates, pipeline + stages, channels, test campaign.
-  //      The provisioning service is idempotent; rerunning the seed is safe.
+  // 3. Plan catalog. Must run BEFORE provisionTenant so it can assign
+  //    a plan to the tenant's auto-created Subscription.
+  await seedDefaultPlans();
+  console.log("✓ default plans (free, starter, pro, enterprise, operator) ready");
+
+  // 4-8. Settings, templates, pipeline + stages, channels, test campaign,
+  //      and Subscription(plan=operator). The default tenant gets the
+  //      Operator plan (hidden + unlimited) since this is the deploy admin.
+  //      Sign-ups get plan="free" by default — see auth.controller signup.
   const result = await provisionTenant(tenant.id, {
     includeTestCampaign: true,
+    subscriptionSlug: "operator",
   });
   console.log(`✓ Tenant "${tenant.slug}" + ${result.settings} default settings ready`);
   console.log(`✓ ${result.templates} message templates ready`);
   console.log(`✓ default pipeline with ${result.stages} stages ready`);
   console.log(`✓ ${result.channels} default channels ready`);
   console.log(`✓ system test campaign "CAMPAIGN_TEST_INTERNAL" ready`);
+  console.log(`✓ Subscription assigned (operator plan)`);
 }
 
 main()
