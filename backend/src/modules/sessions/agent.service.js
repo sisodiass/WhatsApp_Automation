@@ -8,6 +8,7 @@ import { child } from "../../shared/logger.js";
 import { BadRequest, NotFound } from "../../shared/errors.js";
 import { emitChatMessage, emitSessionUpdate } from "../../shared/socket.js";
 import { enqueueOutbound } from "../queue/producers.js";
+import { assertQuota } from "../billing/quota.service.js";
 
 const log = child("agent");
 
@@ -30,6 +31,12 @@ export async function sendAgentReply({ tenantId, chatId, body, authorId }) {
 
   const session = chat.sessions[0];
   if (!session) throw BadRequest("chat has no active session");
+
+  // M11.C3c: plan quota gate. Throws 402 QuotaExceeded with a
+  // structured details payload when the tenant has hit
+  // messages_per_month. Checked before the message+session writes so
+  // an over-quota agent reply doesn't leave a dangling OUT row.
+  await assertQuota(tenantId, "messages_per_month");
 
   // A2: an agent reply implicitly takes ownership. Flip mode if needed
   // so any in-flight AI outbound aborts at the outgoing-worker gate.

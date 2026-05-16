@@ -3,7 +3,7 @@
 // available plans. Upgrade/downgrade flow comes in C.3b (Stripe Checkout).
 
 import { useEffect, useState } from "react";
-import { Check, CreditCard, ExternalLink } from "lucide-react";
+import { Check, CreditCard, ExternalLink, Gauge } from "lucide-react";
 import { api } from "../lib/api.js";
 import { toast } from "../stores/toastStore.js";
 import { PageHeader } from "../components/ui/PageHeader.jsx";
@@ -12,9 +12,23 @@ import { Card, CardContent } from "../components/ui/Card.jsx";
 import { Skeleton } from "../components/ui/Skeleton.jsx";
 import { cn } from "../lib/cn.js";
 
+// Human-friendly labels for the quota keys returned by /billing/usage.
+// Order matters — UI renders in this order. Keys not in this map fall
+// through with their raw name (defensive — operators can add custom
+// limits without code changes here).
+const QUOTA_LABELS = [
+  ["messages_per_month", "Messages this month"],
+  ["ai_replies_per_month", "AI replies this month"],
+  ["contacts_max", "Contacts"],
+  ["automations_max", "Automations"],
+  ["channels_max", "Channels"],
+  ["seats_max", "Team seats"],
+];
+
 export default function Billing() {
   const [subscription, setSubscription] = useState(null);
   const [plans, setPlans] = useState([]);
+  const [usage, setUsage] = useState(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -22,11 +36,13 @@ export default function Billing() {
     Promise.all([
       api.get("/billing/subscription").then((r) => r.data).catch(() => null),
       api.get("/billing/plans").then((r) => r.data.items).catch(() => []),
+      api.get("/billing/usage").then((r) => r.data).catch(() => null),
     ])
-      .then(([sub, list]) => {
+      .then(([sub, list, u]) => {
         if (!cancelled) {
           setSubscription(sub);
           setPlans(list);
+          setUsage(u);
         }
       })
       .finally(() => {
@@ -54,6 +70,7 @@ export default function Billing() {
           ) : (
             <>
               {subscription && <CurrentPlanCard sub={subscription} />}
+              {usage && <UsageCard usage={usage} />}
               <section>
                 <h2 className="mb-3 px-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
                   All plans
@@ -246,6 +263,73 @@ function PlanCard({ plan, current }) {
         </button>
       </CardContent>
     </Card>
+  );
+}
+
+// M11.C3c — usage card. Renders a row per quota key with the current
+// used number and a progress bar against the plan's limit. Null limit
+// renders as "Unlimited" with no bar. >=80% used renders the bar
+// amber; >=100% renders red so over-quota tenants notice immediately.
+function UsageCard({ usage }) {
+  const rows = QUOTA_LABELS.map(([key, label]) => {
+    const item = usage.items?.[key];
+    if (!item) return null;
+    return { key, label, used: item.used, limit: item.limit };
+  }).filter(Boolean);
+
+  if (rows.length === 0) return null;
+
+  return (
+    <Card>
+      <CardContent className="p-5">
+        <div className="mb-4 flex items-center gap-2">
+          <Gauge className="h-4 w-4 text-muted-foreground" />
+          <h3 className="text-sm font-medium">Current usage</h3>
+          {usage.plan?.name && (
+            <span className="text-xs text-muted-foreground">· {usage.plan.name} plan</span>
+          )}
+        </div>
+        <div className="space-y-3">
+          {rows.map((r) => (
+            <UsageRow key={r.key} {...r} />
+          ))}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function UsageRow({ label, used, limit }) {
+  const unlimited = limit == null;
+  const pct = unlimited ? 0 : Math.min(100, Math.round((used / Math.max(1, limit)) * 100));
+  const barColor = unlimited
+    ? "bg-success"
+    : pct >= 100
+    ? "bg-destructive"
+    : pct >= 80
+    ? "bg-warning"
+    : "bg-primary";
+  return (
+    <div>
+      <div className="mb-1 flex items-baseline justify-between text-xs">
+        <span className="text-muted-foreground">{label}</span>
+        <span className="font-mono">
+          {used}
+          {!unlimited && (
+            <span className="text-muted-foreground"> / {limit}</span>
+          )}
+          {unlimited && <span className="text-muted-foreground"> · unlimited</span>}
+        </span>
+      </div>
+      {!unlimited && (
+        <div className="h-1.5 overflow-hidden rounded-full bg-muted">
+          <div
+            className={cn("h-full transition-all", barColor)}
+            style={{ width: `${pct}%` }}
+          />
+        </div>
+      )}
+    </div>
   );
 }
 

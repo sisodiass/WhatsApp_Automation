@@ -10,6 +10,7 @@ import { child } from "../../shared/logger.js";
 import { config } from "../../config/index.js";
 import { BadRequest, Conflict, NotFound } from "../../shared/errors.js";
 import { getBillingProvider } from "./providers/index.js";
+import { invalidateTenantQuota } from "./quota.service.js";
 
 const log = child("billing");
 
@@ -396,6 +397,7 @@ export async function handleStripeWebhook(event) {
       where: { tenantId: tid },
       data: patch,
     });
+    await invalidateTenantQuota(tid);
     log.info("subscription updated", { tid, status, planSlug });
     return { applied: "updated" };
   }
@@ -463,10 +465,14 @@ async function findTenantByStripeSubscription(stripeSubscriptionId) {
 async function applyPlanChange(tenantId, planSlug, extras = {}) {
   const plan = await prisma.plan.findUnique({ where: { slug: planSlug } });
   if (!plan) throw new Error(`plan "${planSlug}" not found`);
-  return prisma.subscription.update({
+  const result = await prisma.subscription.update({
     where: { tenantId },
     data: { planId: plan.id, ...extras },
   });
+  // M11.C3c: bust the per-tenant quota cache so the new plan's
+  // headroom takes effect immediately (no 60s lag on the limits map).
+  await invalidateTenantQuota(tenantId);
+  return result;
 }
 
 // Stripe subscription.status → our SubscriptionStatus enum.

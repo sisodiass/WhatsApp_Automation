@@ -1,5 +1,6 @@
 import { prisma } from "../../shared/prisma.js";
 import { BadRequest, NotFound } from "../../shared/errors.js";
+import { assertQuota } from "../billing/quota.service.js";
 
 // All queries scope on tenantId AND deletedAt IS NULL by default. Pass
 // includeDeleted=true to admin tools that legitimately need to see
@@ -164,6 +165,13 @@ export async function createContact(tenantId, data) {
   // digit-only E.164. We strip the leading "+" and any whitespace; further
   // normalization can land in utils/phone.js later.
   const mobile = String(data.mobile).replace(/^\+/, "").replace(/\s+/g, "");
+
+  // M11.C3c: plan quota gate. Throws 402 QuotaExceeded with a
+  // structured details payload when the tenant has hit contacts_max.
+  // We check BEFORE the insert; the unique-mobile collision check
+  // happens in the .catch below — failing both still surfaces the
+  // quota error first, which is the more actionable signal.
+  await assertQuota(tenantId, "contacts_max");
 
   return prisma.contact
     .create({
