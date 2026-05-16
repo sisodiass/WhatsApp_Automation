@@ -158,6 +158,244 @@ export async function getSourceBreakdown(tenantId, period) {
   });
 }
 
+// M11.D4: source breakdown with realized revenue (won-quote totals)
+// alongside lead counts. The existing getSourceBreakdown stops at
+// counts + conversion rate; this adds the money column operators
+// actually want for ROI math.
+//
+// "Revenue" = sum of Quotation.grandTotal for ACCEPTED quotes whose
+// lead.source matches. This excludes EXPIRED/REJECTED and any DRAFT/SENT
+// in-flight. Reflects actual closed-won value, not pipeline value.
+export async function getSourceRoi(tenantId, period) {
+  const since = periodSince(period);
+  const leadWhere = {
+    tenantId,
+    source: { not: null },
+    ...(since ? { createdAt: { gte: since } } : {}),
+  };
+  const leads = await prisma.lead.groupBy({
+    by: ["source"],
+    where: leadWhere,
+    _count: true,
+  });
+  const wonGrouped = await prisma.lead.groupBy({
+    by: ["source"],
+    where: { ...leadWhere, stage: { category: "WON" } },
+    _count: true,
+  });
+  const wonBySource = new Map(wonGrouped.map((g) => [g.source, g._count]));
+
+  // Revenue per source from ACCEPTED quotations. Join through lead.source.
+  // groupBy can't reach across relations cleanly, so we pull accepted
+  // quotes with their lead's source and aggregate in JS.
+  const acceptedQuotes = await prisma.quotation.findMany({
+    where: {
+      tenantId,
+      status: "ACCEPTED",
+      deletedAt: null,
+      ...(since ? { createdAt: { gte: since } } : {}),
+      lead: { source: { not: null } },
+    },
+    select: { grandTotal: true, currency: true, lead: { select: { source: true } } },
+  });
+  const revenueBySource = new Map(); // source -> { currency -> Decimal-string-sum }
+  for (const q of acceptedQuotes) {
+    const src = q.lead?.source;
+    if (!src) continue;
+    const bucket = revenueBySource.get(src) || {};
+    const cur = q.currency || "INR";
+    bucket[cur] = (Number(bucket[cur] || 0) + Number(q.grandTotal)).toFixed(2);
+    revenueBySource.set(src, bucket);
+  }
+
+  return leads
+    .map((g) => {
+      const won = wonBySource.get(g.source) ?? 0;
+      const revenue = revenueBySource.get(g.source) || {};
+      return {
+        source: g.source,
+        total: g._count,
+        won,
+        conversion: g._count > 0 ? Number((won / g._count).toFixed(3)) : 0,
+        // Per-currency map so multi-currency tenants don't lose detail.
+        // Frontend sums across currencies after rendering each row.
+        revenueByCurrency: revenue,
+      };
+    })
+    .sort((a, b) => b.total - a.total);
+}
+
+// M11.D4: pipeline burndown — daily lead count per stage over a window.
+// Uses LeadActivity (STAGE_CHANGE entries) as the event log, joined with
+// the current lead.stageId for leads that haven't moved in-window. The
+// shape is a time-series the frontend can render as a stacked-area chart.
+//
+// Window is bucketed by UTC day. For a 30d window that's 30 rows.
+export async function getPipelineBurndown(tenantId, pipelineId, days = 30) {
+  const pipeline = pipelineId
+    ? await prisma.pipeline.findFirst({
+        where: { id: pipelineId, tenantId },
+        include: { stages: { orderBy: { order: "asc" } } },
+      })
+    : await prisma.pipeline.findFirst({
+        where: { tenantId, isDefault: true },
+        include: { stages: { orderBy: { order: "asc" } } },
+      });
+  if (!pipeline) return { pipeline: null, stages: [], series: [] };
+
+  const stageIds = pipeline.stages.map((s) => s.id);
+  const stageById = new Map(pipeline.stages.map((s) => [s.id, s]));
+
+  // Stage moves in-window. Each entry has data.toStageId / data.fromStageId
+  // (per automation.engine + lead.service stamp conventions).
+  const since = new Date(Date.now() - days * 24 * 3600 * 1000);
+  const activities = await prisma.leadActivity.findMany({
+    where: {
+      lead: { tenantId, pipelineId: pipeline.id },
+      kind: "STAGE_CHANGE",
+      createdAt: { gte: since },
+    },
+    select: { createdAt: true, data: true, leadId: true },
+    orderBy: { createdAt: "asc" },
+  });
+
+  // Snapshot of the current stage per lead — combined with activities,
+  // we reconstruct the per-day count by walking backward.
+  const currentLeads = await prisma.lead.findMany({
+    where: { tenantId, pipelineId: pipeline.id, stageId: { in: stageIds } },
+    select: { id: true, stageId: true },
+  });
+  const currentByLead = new Map(currentLeads.map((l) => [l.id, l.stageId]));
+
+  // Walk back day-by-day from today. For each day we maintain a map
+  // (stageId -> count) by applying activities in reverse.
+  const todayStart = new Date();
+  todayStart.setUTCHours(0, 0, 0, 0);
+  const series = [];
+  const liveCounts = new Map(); // current per-stage count
+  for (const stage of pipeline.stages) liveCounts.set(stage.id, 0);
+  for (const stageId of currentByLead.values()) {
+    liveCounts.set(stageId, (liveCounts.get(stageId) || 0) + 1);
+  }
+
+  // Activities sorted DESC for reverse walk.
+  const reverseActivities = [...activities].reverse();
+  let actIdx = 0;
+
+  for (let i = 0; i < days; i++) {
+    const dayStart = new Date(todayStart.getTime() - i * 24 * 3600 * 1000);
+    // Apply (reverse) all activities that happened ON or AFTER this day
+    // but BEFORE the next-newer day we already processed. On the first
+    // iteration (i=0) that's "everything from today onward" → nothing.
+    while (actIdx < reverseActivities.length) {
+      const act = reverseActivities[actIdx];
+      if (act.createdAt < dayStart) break;
+      const toStage = act.data?.toStageId;
+      const fromStage = act.data?.fromStageId;
+      // Reverse: decrement the to-side, increment the from-side.
+      if (toStage && liveCounts.has(toStage)) {
+        liveCounts.set(toStage, Math.max(0, liveCounts.get(toStage) - 1));
+      }
+      if (fromStage && liveCounts.has(fromStage)) {
+        liveCounts.set(fromStage, (liveCounts.get(fromStage) || 0) + 1);
+      }
+      actIdx++;
+    }
+    series.unshift({
+      date: dayStart.toISOString().slice(0, 10),
+      counts: Object.fromEntries(liveCounts),
+    });
+  }
+
+  return {
+    pipeline: { id: pipeline.id, name: pipeline.name },
+    stages: pipeline.stages.map((s) => ({
+      id: s.id,
+      name: s.name,
+      order: s.order,
+      category: s.category,
+      color: s.color,
+    })),
+    series,
+  };
+}
+
+// M11.D4: per-agent productivity. The Message table doesn't carry an
+// authorId today (it's tracked indirectly via session.mode flips); the
+// trustworthy attribution we have is Lead.assignedToId. Each row counts:
+//   - assigned:    leads currently assigned to the agent
+//   - wonInWindow: leads won (stage.category=WON, wonAt in window)
+//   - lostInWindow: leads lost in window
+// Add per-message attribution later when Message.authorId lands —
+// noted in TEST_AND_DEPLOY.md as a follow-up.
+export async function getAgentProductivity(tenantId, period) {
+  const since = periodSince(period);
+  const wonWhere = {
+    tenantId,
+    stage: { category: "WON" },
+    assignedToId: { not: null },
+    ...(since ? { wonAt: { gte: since } } : {}),
+  };
+  const lostWhere = {
+    tenantId,
+    stage: { category: "LOST" },
+    assignedToId: { not: null },
+    ...(since ? { lostAt: { gte: since } } : {}),
+  };
+  const assignedWhere = {
+    tenantId,
+    assignedToId: { not: null },
+    stage: { category: "OPEN" },
+  };
+
+  const [wonByAgent, lostByAgent, assignedByAgent] = await Promise.all([
+    prisma.lead.groupBy({ by: ["assignedToId"], where: wonWhere, _count: true }),
+    prisma.lead.groupBy({ by: ["assignedToId"], where: lostWhere, _count: true }),
+    prisma.lead.groupBy({
+      by: ["assignedToId"],
+      where: assignedWhere,
+      _count: true,
+    }),
+  ]);
+
+  const agentIds = new Set([
+    ...wonByAgent.map((r) => r.assignedToId),
+    ...lostByAgent.map((r) => r.assignedToId),
+    ...assignedByAgent.map((r) => r.assignedToId),
+  ]);
+  if (agentIds.size === 0) return [];
+  const users = await prisma.user.findMany({
+    where: { id: { in: [...agentIds] }, tenantId },
+    select: { id: true, name: true, email: true, role: true, isActive: true },
+  });
+  const userById = new Map(users.map((u) => [u.id, u]));
+
+  const wonMap = new Map(wonByAgent.map((r) => [r.assignedToId, r._count]));
+  const lostMap = new Map(lostByAgent.map((r) => [r.assignedToId, r._count]));
+  const assignedMap = new Map(
+    assignedByAgent.map((r) => [r.assignedToId, r._count]),
+  );
+
+  return [...agentIds]
+    .map((id) => {
+      const u = userById.get(id);
+      const won = wonMap.get(id) ?? 0;
+      const lost = lostMap.get(id) ?? 0;
+      return {
+        userId: id,
+        name: u?.name || u?.email || "(unknown)",
+        role: u?.role || null,
+        active: u?.isActive ?? false,
+        openAssigned: assignedMap.get(id) ?? 0,
+        won,
+        lost,
+        // Closed-deal win rate over the window. Defensive denominator.
+        winRate: won + lost > 0 ? Number((won / (won + lost)).toFixed(3)) : 0,
+      };
+    })
+    .sort((a, b) => b.won - a.won);
+}
+
 // Pipeline funnel — counts per stage for the default pipeline (the
 // "active" one). Caller can pass `pipelineId` to scope to another.
 export async function getPipelineFunnel(tenantId, pipelineId) {
